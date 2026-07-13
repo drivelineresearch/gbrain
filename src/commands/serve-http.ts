@@ -95,6 +95,24 @@ export type ProbeHealthResult =
   | { ok: false; status: 503; body: { error: 'service_unavailable'; error_description: string } };
 
 /**
+ * Minimal shape returned by Express' `app.listen()`. Awaiting the listener
+ * keeps the daemon-owning async frame alive and turns asynchronous listen
+ * failures (for example EADDRINUSE) into command failures instead of letting
+ * the CLI return as though startup succeeded.
+ */
+export interface HttpListener {
+  once(event: 'close', listener: () => void): unknown;
+  once(event: 'error', listener: (error: Error) => void): unknown;
+}
+
+export function waitForHttpListenerClose(listener: HttpListener): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    listener.once('close', resolve);
+    listener.once('error', reject);
+  });
+}
+
+/**
  * Pure async health probe. Races `engine.getStats()` against a timeout,
  * returns a tagged result. No Express coupling — easy to unit-test with a
  * mock engine. The /health route handler is a thin wrapper around this.
@@ -2148,7 +2166,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   // ---------------------------------------------------------------------------
   const clientCount = await sql`SELECT count(*)::int as count FROM oauth_clients`;
 
-  app.listen(port, bind, () => {
+  const httpListener = app.listen(port, bind, () => {
     console.error(`
 ╔══════════════════════════════════════════════════════╗
 ║  GBrain MCP Server v${VERSION.padEnd(37)}║
@@ -2173,4 +2191,8 @@ ${suppressBootstrapPrint
     : `║  Admin Token (paste into /admin login):              ║\n║  ${bootstrapToken.substring(0, 50)}  ║\n║  ${bootstrapToken.substring(50).padEnd(50)}  ║\n╚══════════════════════════════════════════════════════╝`}
 `);
   });
+
+  // `runServeHttp` is the daemon owner. Keep its async frame alive until the
+  // listener closes, and propagate listen errors to the CLI/supervisor.
+  await waitForHttpListenerClose(httpListener);
 }

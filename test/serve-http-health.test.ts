@@ -16,7 +16,13 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { HEALTH_TIMEOUT_MS, probeHealth, probeLiveness } from '../src/commands/serve-http.ts';
+import { EventEmitter } from 'node:events';
+import {
+  HEALTH_TIMEOUT_MS,
+  probeHealth,
+  probeLiveness,
+  waitForHttpListenerClose,
+} from '../src/commands/serve-http.ts';
 import type { BrainEngine } from '../src/core/engine.ts';
 import type { SqlQuery } from '../src/core/oauth-provider.ts';
 
@@ -42,6 +48,32 @@ function makeMockSql(fn: () => Promise<unknown>): SqlQuery {
 describe('HEALTH_TIMEOUT_MS', () => {
   test('exported as 3000 (Fly.io headroom over the 5s default)', () => {
     expect(HEALTH_TIMEOUT_MS).toBe(3000);
+  });
+});
+
+describe('HTTP listener lifecycle', () => {
+  test('stays pending while the listener is open and resolves on close', async () => {
+    const listener = new EventEmitter();
+    let settled = false;
+    const waiting = waitForHttpListenerClose(listener).finally(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    listener.emit('close');
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
+  test('rejects when the listener emits an error', async () => {
+    const listener = new EventEmitter();
+    const waiting = waitForHttpListenerClose(listener);
+    const error = new Error('listen EADDRINUSE');
+
+    listener.emit('error', error);
+    await expect(waiting).rejects.toBe(error);
   });
 });
 

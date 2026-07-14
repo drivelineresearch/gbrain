@@ -888,6 +888,20 @@ export interface ResolvedColumn {
   embeddingModel: string;
 }
 
+/**
+ * Optional corpus lane used by agent-facing retrieval workflows. The value is
+ * stored in page frontmatter as `runtime_lane`. It is a retrieval-correctness
+ * boundary, not an authorization primitive (source grants still own access).
+ */
+export type RuntimeLane =
+  | 'startup'
+  | 'general'
+  | 'weakness'
+  | 'programming'
+  | 'precedent'
+  | 'source_material'
+  | 'operations';
+
 export interface SearchOpts {
   limit?: number;
   offset?: number;
@@ -932,6 +946,13 @@ export interface SearchOpts {
    * though they're hard-excluded by default.
    */
   include_slug_prefixes?: string[];
+  /**
+   * Fail-closed frontmatter lane filter. When present, only pages whose
+   * `frontmatter.runtime_lane` exactly matches one of these values are eligible;
+   * unlabeled pages are excluded. Applied inside keyword/vector candidate SQL
+   * and again after graph/alias augmentation.
+   */
+  runtime_lanes?: RuntimeLane[];
   detail?: 'low' | 'medium' | 'high';
   /**
    * v0.20.0 Cathedral II: filter by content_chunks.language (e.g., 'typescript',

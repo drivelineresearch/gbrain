@@ -11,7 +11,7 @@
 
 import type { BrainEngine } from '../engine.ts';
 import { MAX_SEARCH_LIMIT, clampSearchLimit } from '../engine.ts';
-import type { SearchResult, SearchOpts, HybridSearchMeta } from '../types.ts';
+import type { SearchResult, SearchOpts, HybridSearchMeta, RuntimeLane } from '../types.ts';
 import { embed, embedQuery } from '../embedding.ts';
 import { registerBackgroundWorkDrainer } from '../background-work.ts';
 import { resolveEmbeddingColumn, isCacheSafe } from './embedding-column.ts';
@@ -31,8 +31,37 @@ import { autoDetectDetail, classifyQuery, isAmbiguousModalityQuery } from './que
 import { isTitlePhraseMatch } from './title-match.ts';
 import { normalizeAlias } from './alias-normalize.ts';
 import { stampEvidence } from './evidence.ts';
+import { resolveHardExcludes } from './source-boost.ts';
 import { expandAnchors, hydrateChunks } from './two-pass.ts';
 import { enforceTokenBudget } from './token-budget.ts';
+
+function applySlugVisibilityPolicy(
+  results: SearchResult[],
+  excludePrefixes?: string[],
+  includePrefixes?: string[],
+): SearchResult[] {
+  const excluded = resolveHardExcludes(excludePrefixes, includePrefixes);
+  if (excluded.length === 0) return results;
+  return results.filter(result => !excluded.some(prefix => result.slug.startsWith(prefix)));
+}
+
+async function applyRuntimeLanePolicy(
+  engine: BrainEngine,
+  results: SearchResult[],
+  runtimeLanes?: RuntimeLane[],
+): Promise<SearchResult[]> {
+  if (runtimeLanes === undefined) return results;
+  if (runtimeLanes.length === 0 || results.length === 0) return [];
+  const ids = [...new Set(
+    results
+      .map(result => result.page_id)
+      .filter((id): id is number => typeof id === 'number' && Number.isFinite(id)),
+  )];
+  if (ids.length === 0) return [];
+  const laneByPageId = await engine.getRuntimeLanesByPageIds(ids);
+  const allowed = new Set<string>(runtimeLanes);
+  return results.filter(result => allowed.has(laneByPageId.get(result.page_id) ?? ''));
+}
 import { recordSearchTelemetry } from './telemetry.ts';
 import {
   weightsForIntent,
@@ -912,6 +941,9 @@ export async function hybridSearch(
     // ordering means we can't lazy-spread the full opts).
     sourceId: opts?.sourceId,
     sourceIds: opts?.sourceIds,
+    runtime_lanes: opts?.runtime_lanes,
+    exclude_slug_prefixes: opts?.exclude_slug_prefixes,
+    include_slug_prefixes: opts?.include_slug_prefixes,
     // v0.36 (D11): pass the pre-validated descriptor into the engine so
     // it never has to read config. Engines normalize string-or-descriptor
     // via normalizeEngineColumn; the descriptor path is the strict one.
@@ -1033,6 +1065,11 @@ export async function hybridSearch(
       limit: opts?.limit ?? resolvedMode.searchLimit,
       onMeta: opts?.onRelationalMeta,
     });
+    relationalList = applySlugVisibilityPolicy(
+      await applyRuntimeLanePolicy(engine, relationalList, opts?.runtime_lanes),
+      opts?.exclude_slug_prefixes,
+      opts?.include_slug_prefixes,
+    );
   }
 
   // Skip vector search entirely if the gateway has no embedding provider configured (Codex C3).
@@ -1060,10 +1097,18 @@ export async function hybridSearch(
     }
     // T3/T4 — alias hop + evidence stamp even without an embedding provider
     // (the named-thing fix is most valuable exactly when vector is unavailable).
-    const noEmbedHopped = await applyAliasHop(engine, dedupResults(noEmbedResults), query, {
-      sourceId: opts?.sourceId,
-      sourceIds: opts?.sourceIds,
-    });
+    const noEmbedHopped = applySlugVisibilityPolicy(
+      await applyRuntimeLanePolicy(
+        engine,
+        await applyAliasHop(engine, dedupResults(noEmbedResults), query, {
+          sourceId: opts?.sourceId,
+          sourceIds: opts?.sourceIds,
+        }),
+        opts?.runtime_lanes,
+      ),
+      opts?.exclude_slug_prefixes,
+      opts?.include_slug_prefixes,
+    );
     stampEvidence(noEmbedHopped);
     const noEmbedSliced = noEmbedHopped.slice(offset, offset + limit);
     // v0.32.3 search-lite: budget enforcement on the no-embedding-provider path.
@@ -1292,10 +1337,18 @@ export async function hybridSearch(
       await runPostFusionStages(engine, fallbackResults, postFusionOpts);
       fallbackResults.sort((a, b) => b.score - a.score);
     }
-    const kwHopped = await applyAliasHop(engine, dedupResults(fallbackResults), query, {
-      sourceId: opts?.sourceId,
-      sourceIds: opts?.sourceIds,
-    });
+    const kwHopped = applySlugVisibilityPolicy(
+      await applyRuntimeLanePolicy(
+        engine,
+        await applyAliasHop(engine, dedupResults(fallbackResults), query, {
+          sourceId: opts?.sourceId,
+          sourceIds: opts?.sourceIds,
+        }),
+        opts?.runtime_lanes,
+      ),
+      opts?.exclude_slug_prefixes,
+      opts?.include_slug_prefixes,
+    );
     stampEvidence(kwHopped);
     const kwSliced = kwHopped.slice(offset, offset + limit);
     // v0.32.3 search-lite: budget enforcement on the keyword-fallback path too.
@@ -1411,7 +1464,11 @@ export async function hybridSearch(
         .filter(e => !existingIds.has(e.chunk_id))
         .map(e => e.chunk_id);
       if (newIds.length > 0) {
-        const hydrated = await hydrateChunks(engine, newIds);
+        const hydrated = await applyRuntimeLanePolicy(
+          engine,
+          await hydrateChunks(engine, newIds),
+          opts?.runtime_lanes,
+        );
         const scoreById = new Map(expanded.map(e => [e.chunk_id, e.score]));
         for (const r of hydrated) {
           r.score = scoreById.get(r.chunk_id) ?? 0.01;
@@ -1465,10 +1522,18 @@ export async function hybridSearch(
   // T3 — free-text alias hop. Runs AFTER rerank so a query that is a page's
   // declared chosen name reliably surfaces that page regardless of how the
   // reranker scored body chunks. Fail-open on pre-v110 brains.
-  const aliasHopped = await applyAliasHop(engine, reranked, query, {
-    sourceId: opts?.sourceId,
-    sourceIds: opts?.sourceIds,
-  });
+  const aliasHopped = applySlugVisibilityPolicy(
+    await applyRuntimeLanePolicy(
+      engine,
+      await applyAliasHop(engine, reranked, query, {
+        sourceId: opts?.sourceId,
+        sourceIds: opts?.sourceIds,
+      }),
+      opts?.runtime_lanes,
+    ),
+    opts?.exclude_slug_prefixes,
+    opts?.include_slug_prefixes,
+  );
 
   // T4 — stamp evidence + create_safety so the agent's don't-duplicate
   // decision keys off WHY a page matched, not a raw blended score. Stamp on
@@ -1662,7 +1727,10 @@ export async function hybridSearchCached(
     (opts?.walkDepth ?? 0) > 0 ||
     Boolean(opts?.nearSymbol) ||
     isNonDefaultColumn ||
-    adaptiveReturnOn;
+    adaptiveReturnOn ||
+    Boolean(opts?.exclude_slug_prefixes?.length) ||
+    Boolean(opts?.include_slug_prefixes?.length) ||
+    opts?.runtime_lanes !== undefined;
 
   let cacheStatus: 'hit' | 'miss' | 'disabled' = skipCache ? 'disabled' : 'miss';
   let cacheSimilarity: number | undefined;

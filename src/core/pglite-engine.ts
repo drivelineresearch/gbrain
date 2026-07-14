@@ -1592,6 +1592,13 @@ export class PGLiteEngine implements BrainEngine {
       params.push(opts.sourceId);
       extraFilter += ` AND p.source_id = $${params.length}`;
     }
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) extraFilter += ' AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        extraFilter += ` AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
+    }
 
     const { rows } = await this.db.query(
       `WITH ranked AS (
@@ -1694,6 +1701,13 @@ export class PGLiteEngine implements BrainEngine {
     } else if (opts?.sourceId) {
       params.push(opts.sourceId);
       extraFilter += ` AND p.source_id = $${params.length}`;
+    }
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) extraFilter += ' AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        extraFilter += ` AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
     }
 
     // Bigram-frequency count: count occurrences of $qRaw in chunk_text via
@@ -1823,6 +1837,13 @@ export class PGLiteEngine implements BrainEngine {
       params.push(opts.sourceId);
       extraFilter += ` AND p.source_id = $${params.length}`;
     }
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) extraFilter += ' AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        extraFilter += ` AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
+    }
 
     // visibilityClause already declared above (v0.32.7: hoisted so CJK branch can reuse).
 
@@ -1913,6 +1934,13 @@ export class PGLiteEngine implements BrainEngine {
     } else if (opts?.sourceId) {
       params.push(opts.sourceId);
       extraFilter += ` AND p.source_id = $${params.length}`;
+    }
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) extraFilter += ' AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        extraFilter += ` AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
     }
 
     // v0.26.5: visibility filter applied in the inner CTE so HNSW sees the
@@ -3159,6 +3187,23 @@ export class PGLiteEngine implements BrainEngine {
     for (const r of rows as { id: number; reason: string | null; detail: string | null }[]) {
       if (!r.reason) continue;
       result.set(Number(r.id), { reason: r.reason, detail: r.detail ?? '' });
+    }
+    return result;
+  }
+
+  async getRuntimeLanesByPageIds(pageIds: number[]): Promise<Map<number, string>> {
+    const result = new Map<number, string>();
+    if (pageIds.length === 0) return result;
+    const { rows } = await this.db.query(
+      `SELECT id,
+              frontmatter ->> 'runtime_lane' AS runtime_lane
+       FROM pages
+       WHERE id = ANY($1::int[])
+         AND frontmatter ? 'runtime_lane'`,
+      [pageIds]
+    );
+    for (const r of rows as { id: number; runtime_lane: string | null }[]) {
+      if (r.runtime_lane) result.set(Number(r.id), r.runtime_lane);
     }
     return result;
   }

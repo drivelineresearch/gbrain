@@ -1623,6 +1623,14 @@ export class PostgresEngine implements BrainEngine {
       params.push(opts.sourceId);
       sourceClause = `AND p.source_id = $${params.length}`;
     }
+    let runtimeLaneClause = '';
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) runtimeLaneClause = 'AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        runtimeLaneClause = `AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
+    }
     params.push(innerLimit);
     const innerLimitParam = `$${params.length}`;
     params.push(limit);
@@ -1656,6 +1664,7 @@ export class PostgresEngine implements BrainEngine {
           ${afterDateClause}
           ${beforeDateClause}
           ${sourceClause}
+          ${runtimeLaneClause}
           ${hardExcludeClause}
           ${visibilityClause}
           -- v0.27.1: hide image rows from text-keyword search so OCR text
@@ -1767,6 +1776,14 @@ export class PostgresEngine implements BrainEngine {
       params.push(opts.sourceId);
       sourceClause = `AND p.source_id = $${params.length}`;
     }
+    let runtimeLaneClause = '';
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) runtimeLaneClause = 'AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        runtimeLaneClause = `AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
+    }
     params.push(limit);
     const limitParam = `$${params.length}`;
     params.push(offset);
@@ -1795,6 +1812,7 @@ export class PostgresEngine implements BrainEngine {
         ${afterDateClause}
         ${beforeDateClause}
         ${sourceClause}
+        ${runtimeLaneClause}
         ${hardExcludeClause}
         ${visibilityClause}
       ORDER BY score DESC
@@ -1891,6 +1909,14 @@ export class PostgresEngine implements BrainEngine {
       params.push(opts.sourceId);
       sourceClause = `AND p.source_id = $${params.length}`;
     }
+    let runtimeLaneClause = '';
+    if (opts?.runtime_lanes !== undefined) {
+      if (opts.runtime_lanes.length === 0) runtimeLaneClause = 'AND FALSE';
+      else {
+        params.push(opts.runtime_lanes);
+        runtimeLaneClause = `AND p.frontmatter->>'runtime_lane' = ANY($${params.length}::text[])`;
+      }
+    }
     params.push(innerLimit);
     const innerLimitParam = `$${params.length}`;
     params.push(limit);
@@ -1944,6 +1970,7 @@ export class PostgresEngine implements BrainEngine {
           ${afterDateClause}
           ${beforeDateClause}
           ${sourceClause}
+          ${runtimeLaneClause}
           ${hardExcludeClause}
           ${visibilityClause}
         ORDER BY cc.${col} <=> ${castSql}
@@ -3210,6 +3237,23 @@ export class PostgresEngine implements BrainEngine {
     for (const r of rows as unknown as { id: number; reason: string | null; detail: string | null }[]) {
       if (!r.reason) continue;
       result.set(Number(r.id), { reason: r.reason, detail: r.detail ?? '' });
+    }
+    return result;
+  }
+
+  async getRuntimeLanesByPageIds(pageIds: number[]): Promise<Map<number, string>> {
+    const result = new Map<number, string>();
+    if (pageIds.length === 0) return result;
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id,
+             frontmatter ->> 'runtime_lane' AS runtime_lane
+      FROM pages
+      WHERE id = ANY(${pageIds}::int[])
+        AND frontmatter ? 'runtime_lane'
+    `;
+    for (const r of rows as unknown as { id: number; runtime_lane: string | null }[]) {
+      if (r.runtime_lane) result.set(Number(r.id), r.runtime_lane);
     }
     return result;
   }

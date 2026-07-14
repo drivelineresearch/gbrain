@@ -1287,6 +1287,12 @@ export interface BrainEngine {
     pageIds: number[],
   ): Promise<Map<number, { reason: string; detail: string }>>;
   /**
+   * Return the `frontmatter.runtime_lane` value for the requested pages.
+   * Used to keep alias, relational, and structural augmentation inside an
+   * explicitly requested runtime lane. Empty input returns an empty map.
+   */
+  getRuntimeLanesByPageIds(pageIds: number[]): Promise<Map<number, string>>;
+  /**
    * v0.27.0: for a list of slugs, return their updated_at timestamps (or created_at fallback).
    * Used by hybrid search recency boost. Single SQL query, not N+1.
    * Slugs with no timestamp get no entry in the map.

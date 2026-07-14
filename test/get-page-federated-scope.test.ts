@@ -152,6 +152,21 @@ describe('get_page handler closes the cross-source exact-read leak', () => {
     const page: any = await get_page.handler(ctx, { slug: 'shared/alpha-doc' });
     expect(page.title).toBe('Alpha doc');
   });
+
+  test('explicit source_id selects the intended source for a colliding slug', async () => {
+    const ctx = remoteCtx(['alpha', 'beta']);
+    const alpha: any = await get_page.handler(ctx, { slug: 'shared/dup', source_id: 'alpha' });
+    const beta: any = await get_page.handler(ctx, { slug: 'shared/dup', source_id: 'beta' });
+    expect(alpha.title).toBe('Dup alpha');
+    expect(beta.title).toBe('Dup beta');
+  });
+
+  test('explicit source_id outside a remote caller grant fails closed', async () => {
+    const ctx = remoteCtx(['alpha']);
+    await expect(
+      get_page.handler(ctx, { slug: 'secret/beta-doc', source_id: 'beta' }),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+  });
 });
 
 // ---------------------------------------------------------------------------

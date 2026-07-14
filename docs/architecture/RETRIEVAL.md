@@ -60,6 +60,21 @@ Hybrid search applies a source-factor CASE expression at the SQL layer (lives in
 
 The boost map is configurable via `GBRAIN_SOURCE_BOOST` env var or per-call `SearchOpts.exclude_slug_prefixes`. Temporal queries (`detail: 'high'`) bypass the boost so chat pages re-surface for time-sensitive lookups.
 
+### Runtime-lane filtering
+
+Agent workflows can add a second, explicit correctness boundary inside a source
+with `query(runtime_lanes=[...])`. A page participates only when its
+`frontmatter.runtime_lane` exactly matches an allowed value; unlabeled pages are
+excluded. The filter is pushed into keyword and vector candidate SQL, then
+rechecked after relational, structural, and alias augmentation so post-fusion
+recall cannot cross the lane. Lane-filtered calls bypass semantic query cache.
+
+Runtime lanes are not authorization. OAuth/source grants still determine what a
+caller may read; lanes prevent semantically similar content modes—for example
+general doctrine and case precedent—from contaminating one retrieval call.
+Providing an empty lane array fails closed at the engine layer, and the MCP
+`query` operation rejects empty or unknown values before retrieval.
+
 ## Named-thing retrieval (per-page pool + title + alias + evidence)
 
 A brain organized around *chosen names* (Mingtang, Hall of Light) needs more than

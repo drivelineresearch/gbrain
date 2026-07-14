@@ -8,7 +8,7 @@ import { resolve, relative, sep } from 'path';
 import type { BrainEngine } from './engine.ts';
 import { clampSearchLimit } from './engine.ts';
 import type { GBrainConfig } from './config.ts';
-import type { PageType } from './types.ts';
+import type { PageType, RuntimeLane } from './types.ts';
 import { importFromContent } from './import-file.ts';
 import { writePageThrough } from './write-through.ts';
 import { hybridSearch, hybridSearchCached, stampContentFlags } from './search/hybrid.ts';
@@ -91,6 +91,38 @@ export class OperationError extends Error {
       docs: this.docs,
     };
   }
+}
+
+const RUNTIME_LANES = new Set<RuntimeLane>([
+  'startup',
+  'general',
+  'weakness',
+  'programming',
+  'precedent',
+  'source_material',
+  'operations',
+]);
+
+function parseRuntimeLanes(value: unknown): RuntimeLane[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new OperationError(
+      'invalid_params',
+      '`runtime_lanes` must be a non-empty array when provided.',
+    );
+  }
+  if (value.length > RUNTIME_LANES.size) {
+    throw new OperationError('invalid_params', '`runtime_lanes` contains too many values.');
+  }
+  const lanes = [...new Set(value)];
+  if (lanes.some(lane => typeof lane !== 'string' || !RUNTIME_LANES.has(lane as RuntimeLane))) {
+    throw new OperationError(
+      'invalid_params',
+      '`runtime_lanes` contains an unknown lane.',
+      `Allowed values: ${[...RUNTIME_LANES].join(', ')}`,
+    );
+  }
+  return lanes as RuntimeLane[];
 }
 
 // --- Upload validators (Fix 1 / B5 / H5 / M4) ---
@@ -622,9 +654,14 @@ export interface Operation {
 
 const get_page: Operation = {
   name: 'get_page',
-  description: 'Read a page by slug (supports optional fuzzy matching). Soft-deleted pages are hidden by default; pass include_deleted: true to surface them with deleted_at populated (see v0.26.5 recovery window).',
+  description: 'Read a page by slug from an explicitly selected source (supports optional fuzzy matching). Soft-deleted pages are hidden by default; pass include_deleted: true to surface them with deleted_at populated (see v0.26.5 recovery window).',
   params: {
     slug: { type: 'string', required: true, description: 'Page slug' },
+    source_id: {
+      type: 'string',
+      description:
+        "Scope the exact read to one source. Defaults to the caller's source grant. Pass '__all__' only when a cross-source exact read is intentional; remote callers remain limited to granted sources.",
+    },
     fuzzy: { type: 'boolean', description: 'Enable fuzzy slug resolution (default: false)' },
     include_deleted: { type: 'boolean', description: 'v0.26.5: surface soft-deleted pages with deleted_at populated (default: false). Used by restore workflows.' },
   },
@@ -632,13 +669,14 @@ const get_page: Operation = {
     const slug = p.slug as string;
     const fuzzy = (p.fuzzy as boolean) || false;
     const includeDeleted = (p.include_deleted as boolean) === true;
+    const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
     // #1393: route BOTH the exact-match read and the fuzzy resolveSlugs through
     // the canonical precedence ladder (federated array > scalar > nothing). The
     // exact path previously used scalar `ctx.sourceId` only, so a remote client
     // with a federated `allowedSources` grant (and no single ctx.sourceId) got
     // an UNSCOPED exact lookup — a cross-source read of any page by slug. getPage
     // now honors sourceIds[] (both engines), so the same scope closes both paths.
-    const sourceOpts = sourceScopeOpts(ctx);
+    const sourceOpts = resolveRequestedScope(ctx, sourceIdParam);
     const fuzzyScope = sourceOpts;
 
     let page = await ctx.engine.getPage(slug, { includeDeleted, ...sourceOpts });
@@ -1537,6 +1575,24 @@ const query: Operation = {
       description:
         "v0.34: scope search to a single source. Defaults to OperationContext.sourceId (set from CLI --source / GBRAIN_SOURCE / .gbrain-source dotfile). Pass '__all__' to span every source for trusted local callers; for remote callers '__all__' spans only your granted sources.",
     },
+    exclude_slug_prefixes: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Add slug-prefix exclusions for this query. These are applied inside retrieval and force a fresh search so a cache row from a different visibility policy cannot leak through.',
+    },
+    include_slug_prefixes: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Opt specific slug prefixes back into this query. These are applied inside retrieval and force a fresh search so a cache row from a different visibility policy cannot leak through.',
+    },
+    runtime_lanes: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Fail-closed corpus-lane filter. When provided, only pages whose frontmatter runtime_lane exactly matches are eligible; unlabeled pages are excluded. This controls retrieval correctness, not authorization.',
+    },
     cross_modal: {
       type: 'string',
       enum: ['text', 'image', 'both', 'auto'],
@@ -1593,6 +1649,7 @@ const query: Operation = {
     // hybridSearch path below, so both honor the same grant.
     const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
     const querySourceScope = resolveRequestedScope(ctx, sourceIdParam);
+    const runtimeLanes = parseRuntimeLanes(p.runtime_lanes);
 
     // v0.27.1: image-similarity branch. Bypasses hybridSearch (which is
     // text-only); embeds the image via embedMultimodal and runs a direct
@@ -1610,6 +1667,7 @@ const query: Operation = {
         limit: (p.limit as number) || 20,
         offset: (p.offset as number) || 0,
         embeddingColumn: 'embedding_image',
+        runtime_lanes: runtimeLanes,
         ...querySourceScope,
       });
       return results;
@@ -1645,6 +1703,13 @@ const query: Operation = {
       nearSymbol: (p.near_symbol as string) || undefined,
       walkDepth: typeof p.walk_depth === 'number' ? (p.walk_depth as number) : undefined,
       ...querySourceScope,
+      exclude_slug_prefixes: Array.isArray(p.exclude_slug_prefixes)
+        ? (p.exclude_slug_prefixes as string[])
+        : undefined,
+      include_slug_prefixes: Array.isArray(p.include_slug_prefixes)
+        ? (p.include_slug_prefixes as string[])
+        : undefined,
+      runtime_lanes: runtimeLanes,
       // v0.29.1 — agent-explicit recency + salience. Omitted = heuristic defaults.
       salience: p.salience as 'off' | 'on' | 'strong' | undefined,
       recency: p.recency as 'off' | 'on' | 'strong' | undefined,

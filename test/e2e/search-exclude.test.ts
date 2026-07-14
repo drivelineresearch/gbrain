@@ -12,6 +12,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { PGLiteEngine } from '../../src/core/pglite-engine.ts';
 import { hybridSearch } from '../../src/core/search/hybrid.ts';
 import type { ChunkInput } from '../../src/core/types.ts';
+import { operations, type OperationContext } from '../../src/core/operations.ts';
 
 let engine: PGLiteEngine;
 
@@ -73,6 +74,51 @@ beforeAll(async () => {
       token_count: 9,
     },
   ] satisfies ChunkInput[]);
+
+  await engine.putPage('00-command-center/caesar/pitching-diagnosis', {
+    type: 'workflow',
+    title: 'Caesar Pitching Diagnosis',
+    compiled_truth: 'pitching diagnosis biomechanics widget mechanics',
+    timeline: '',
+    frontmatter: { runtime_lane: 'operations' },
+  });
+  await engine.upsertChunks('00-command-center/caesar/pitching-diagnosis', [{
+    chunk_index: 0,
+    chunk_text: 'pitching diagnosis biomechanics widget mechanics',
+    chunk_source: 'compiled_truth',
+    embedding: basisEmbedding(16),
+    token_count: 7,
+  }] satisfies ChunkInput[]);
+
+  await engine.putPage('20-pitching/biomechanics/diagnosis-guide', {
+    type: 'concept',
+    title: 'Pitching Biomechanics Diagnosis Guide',
+    compiled_truth: 'pitching diagnosis biomechanics widget mechanics',
+    timeline: '',
+    frontmatter: { runtime_lane: 'general' },
+  });
+  await engine.upsertChunks('20-pitching/biomechanics/diagnosis-guide', [{
+    chunk_index: 0,
+    chunk_text: 'pitching diagnosis biomechanics widget mechanics',
+    chunk_source: 'compiled_truth',
+    embedding: basisEmbedding(16),
+    token_count: 7,
+  }] satisfies ChunkInput[]);
+
+  await engine.putPage('precedent/pitching-diagnosis-case', {
+    type: 'concept',
+    title: 'Pitching Diagnosis Precedent',
+    compiled_truth: 'pitching diagnosis biomechanics widget mechanics',
+    timeline: '',
+    frontmatter: { runtime_lane: 'precedent' },
+  });
+  await engine.upsertChunks('precedent/pitching-diagnosis-case', [{
+    chunk_index: 0,
+    chunk_text: 'pitching diagnosis biomechanics widget mechanics',
+    chunk_source: 'compiled_truth',
+    embedding: basisEmbedding(16),
+    token_count: 7,
+  }] satisfies ChunkInput[]);
 
   // A genuinely-excluded prefix that stays hidden by default (locks "only
   // archive moved" — test/, attachments/, .raw/ are unchanged).
@@ -231,5 +277,84 @@ describe('caller-supplied exclude_slug_prefixes (additive)', () => {
     // archive/ is NOT a default exclude and was not caller-excluded, so it
     // remains visible (issue #1777).
     expect(slugs).toContain('archive/old-stuff/widget-2020');
+  });
+
+  test('runtime_lanes is fail-closed across keyword, vector, and hybrid retrieval', async () => {
+    const keyword = await engine.searchKeyword(
+      'pitching diagnosis biomechanics widget mechanics',
+      { limit: 20, runtime_lanes: ['general'] },
+    );
+    expect(keyword.map(r => r.slug)).toEqual(['20-pitching/biomechanics/diagnosis-guide']);
+
+    const vector = await engine.searchVector(basisEmbedding(16), {
+      limit: 20,
+      runtime_lanes: ['precedent'],
+    });
+    expect(vector.map(r => r.slug)).toEqual(['precedent/pitching-diagnosis-case']);
+
+    const hybrid = await hybridSearch(
+      engine,
+      'pitching diagnosis biomechanics widget mechanics',
+      { limit: 20, expansion: false, runtime_lanes: ['general'] },
+    );
+    expect(hybrid.map(r => r.slug)).toEqual(['20-pitching/biomechanics/diagnosis-guide']);
+
+    expect(await engine.searchKeyword('pitching diagnosis', { runtime_lanes: [] })).toEqual([]);
+  });
+
+  test('runtime lane metadata can be batch-resolved for post-fusion filtering', async () => {
+    const general = await engine.getPage('20-pitching/biomechanics/diagnosis-guide');
+    const precedent = await engine.getPage('precedent/pitching-diagnosis-case');
+    const lanes = await engine.getRuntimeLanesByPageIds([general!.id, precedent!.id]);
+    expect(lanes.get(general!.id)).toBe('general');
+    expect(lanes.get(precedent!.id)).toBe('precedent');
+  });
+
+  test('query operation exposes per-call prefix policy and excludes Caesar paths', async () => {
+    const queryOp = operations.find(o => o.name === 'query')!;
+    expect(queryOp.params.exclude_slug_prefixes).toBeDefined();
+    expect(queryOp.params.include_slug_prefixes).toBeDefined();
+    expect(queryOp.params.runtime_lanes).toBeDefined();
+
+    const ctx: OperationContext = {
+      engine: engine as any,
+      config: {} as any,
+      logger: console as any,
+      dryRun: false,
+      remote: false,
+      sourceId: 'default',
+    };
+    const results = await queryOp.handler(ctx, {
+      query: 'pitching diagnosis biomechanics widget mechanics',
+      expand: false,
+      limit: 20,
+      use_cache: true,
+      exclude_slug_prefixes: ['00-command-center/caesar/'],
+      runtime_lanes: ['general'],
+    }) as Array<{ slug: string }>;
+
+    expect(results.map(r => r.slug)).toContain('20-pitching/biomechanics/diagnosis-guide');
+    expect(results.map(r => r.slug)).not.toContain('00-command-center/caesar/pitching-diagnosis');
+    expect(results.map(r => r.slug)).not.toContain('precedent/pitching-diagnosis-case');
+  });
+
+  test('query operation rejects empty and unknown runtime lane filters', async () => {
+    const queryOp = operations.find(o => o.name === 'query')!;
+    const ctx: OperationContext = {
+      engine: engine as any,
+      config: {} as any,
+      logger: console as any,
+      dryRun: false,
+      remote: false,
+      sourceId: 'default',
+    };
+    await expect(queryOp.handler(ctx, {
+      query: 'pitching diagnosis',
+      runtime_lanes: [],
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(queryOp.handler(ctx, {
+      query: 'pitching diagnosis',
+      runtime_lanes: ['not-a-lane'],
+    })).rejects.toMatchObject({ code: 'invalid_params' });
   });
 });

@@ -313,6 +313,27 @@ describe('extractPageLinks', () => {
     expect(candidates).toEqual([]);
   });
 
+  test('deep canonical wikilink resolves exactly without global basename', async () => {
+    const resolver: SlugResolver = {
+      resolve: async () => null,
+      resolveExact: async (slug) =>
+        slug === 'raw/region/2025/meeting/part-001' ? slug : null,
+      resolveBasenameMatches: async () => {
+        throw new Error('basename resolution must remain disabled');
+      },
+    };
+
+    const { candidates } = await extractPageLinks(
+      'semantic/pitching/meeting/part-001',
+      'See [[raw/region/2025/meeting/part-001]] for the source dialogue.',
+      {}, 'meeting', resolver,
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.targetSlug).toBe('raw/region/2025/meeting/part-001');
+    expect(candidates[0]?.linkSource).toBe('markdown');
+  });
+
   test('bare wikilink emits one candidate per basename match when flag ON', async () => {
     const resolver: SlugResolver = {
       resolve: async () => null,
@@ -1264,4 +1285,3 @@ describe("v0.18.0 migration v22 — links_resolution_type", () => {
     expect(v22!.sql).toContain("unqualified");
   });
 });
-

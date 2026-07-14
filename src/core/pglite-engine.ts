@@ -54,7 +54,7 @@ import { GBrainError, PAGE_SORT_SQL, ENRICH_ORDER_SQL } from './types.ts';
 import { finalizeLastSeen } from './chronicle/last-seen.ts';
 import { computeAnomaliesFromBuckets } from './cycle/anomaly.ts';
 import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
-import { buildSourceFactorCase, buildHardExcludeClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
+import { buildSourceFactorCase, buildHardExcludeClause, buildOnlySlugPrefixesClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
 import {
   normalizeEngineColumn,
   buildVectorCastFragment,
@@ -1540,6 +1540,7 @@ export class PGLiteEngine implements BrainEngine {
     const sourceFactorCase = buildSourceFactorCase('p.slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
 
     // v0.26.5: visibility filter (soft-deleted + archived-source).
     const visibilityClause = buildVisibilityClause('p', 's');
@@ -1551,7 +1552,7 @@ export class PGLiteEngine implements BrainEngine {
     if (hasCJK(query)) {
       return this._searchKeywordCJK(query, {
         limit, offset, innerLimit, sourceFactorCase,
-        hardExcludeClause, visibilityClause, detailFilter, opts,
+        hardExcludeClause, onlySlugPrefixesClause, visibilityClause, detailFilter, opts,
         dedup: true,
       });
     }
@@ -1613,7 +1614,7 @@ export class PGLiteEngine implements BrainEngine {
          FROM content_chunks cc
          JOIN pages p ON p.id = cc.page_id
          JOIN sources s ON s.id = p.source_id
-         WHERE cc.search_vector @@ websearch_to_tsquery('english', $1) ${detailFilter}${extraFilter} ${hardExcludeClause} ${visibilityClause}
+         WHERE cc.search_vector @@ websearch_to_tsquery('english', $1) ${detailFilter}${extraFilter} ${hardExcludeClause} ${onlySlugPrefixesClause} ${visibilityClause}
            -- v0.27.1: hide image rows from default text-keyword search so
            -- OCR text doesn't drown text-page hits. Image-similarity queries
            -- run a separate vector path on embedding_image.
@@ -1657,13 +1658,14 @@ export class PGLiteEngine implements BrainEngine {
       innerLimit: number;
       sourceFactorCase: string;
       hardExcludeClause: string;
+      onlySlugPrefixesClause: string;
       visibilityClause: string;
       detailFilter: string;
       opts: SearchOpts | undefined;
       dedup: boolean;
     },
   ): Promise<SearchResult[]> {
-    const { limit, offset, innerLimit, sourceFactorCase, hardExcludeClause, visibilityClause, detailFilter, opts, dedup } = ctx;
+    const { limit, offset, innerLimit, sourceFactorCase, hardExcludeClause, onlySlugPrefixesClause, visibilityClause, detailFilter, opts, dedup } = ctx;
     const qRaw = query;
     if (qRaw.length === 0) return [];
     const qLike = escapeLikePattern(qRaw);
@@ -1734,7 +1736,7 @@ export class PGLiteEngine implements BrainEngine {
            FROM content_chunks cc
            JOIN pages p ON p.id = cc.page_id
            JOIN sources s ON s.id = p.source_id
-           WHERE cc.chunk_text ILIKE '%' || $1 || '%' ESCAPE '\\' ${detailFilter}${extraFilter} ${hardExcludeClause} ${visibilityClause}
+           WHERE cc.chunk_text ILIKE '%' || $1 || '%' ESCAPE '\\' ${detailFilter}${extraFilter} ${hardExcludeClause} ${onlySlugPrefixesClause} ${visibilityClause}
              AND cc.modality = 'text'
            ORDER BY score DESC
            LIMIT $3
@@ -1759,7 +1761,7 @@ export class PGLiteEngine implements BrainEngine {
          FROM content_chunks cc
          JOIN pages p ON p.id = cc.page_id
          JOIN sources s ON s.id = p.source_id
-         WHERE cc.chunk_text ILIKE '%' || $1 || '%' ESCAPE '\\' ${detailFilter}${extraFilter} ${hardExcludeClause} ${visibilityClause}
+         WHERE cc.chunk_text ILIKE '%' || $1 || '%' ESCAPE '\\' ${detailFilter}${extraFilter} ${hardExcludeClause} ${onlySlugPrefixesClause} ${visibilityClause}
          ORDER BY score DESC
          LIMIT $3 OFFSET $4`,
         params,
@@ -1795,6 +1797,7 @@ export class PGLiteEngine implements BrainEngine {
     const sourceFactorCase = buildSourceFactorCase('p.slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
     const visibilityClause = buildVisibilityClause('p', 's');
 
     // v0.32.7: CJK branch (same as searchKeyword but without page-dedup).
@@ -1803,7 +1806,7 @@ export class PGLiteEngine implements BrainEngine {
         limit, offset,
         innerLimit: 0,             // unused on chunk-grain (no inner CTE)
         sourceFactorCase,
-        hardExcludeClause, visibilityClause, detailFilter, opts,
+        hardExcludeClause, onlySlugPrefixesClause, visibilityClause, detailFilter, opts,
         dedup: false,
       });
     }
@@ -1859,7 +1862,7 @@ export class PGLiteEngine implements BrainEngine {
        FROM content_chunks cc
        JOIN pages p ON p.id = cc.page_id
        JOIN sources s ON s.id = p.source_id
-       WHERE cc.search_vector @@ websearch_to_tsquery('english', $1) ${detailFilter}${extraFilter} ${hardExcludeClause} ${visibilityClause}
+       WHERE cc.search_vector @@ websearch_to_tsquery('english', $1) ${detailFilter}${extraFilter} ${hardExcludeClause} ${onlySlugPrefixesClause} ${visibilityClause}
        ORDER BY score DESC
        LIMIT $2 OFFSET $3`,
       params
@@ -1895,6 +1898,7 @@ export class PGLiteEngine implements BrainEngine {
     const sourceFactorCaseOnSlug = buildSourceFactorCase('slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
     const innerLimit = offset + Math.max(limit * 5, 100);
 
     const params: unknown[] = [vecStr, innerLimit, limit, offset];
@@ -1975,7 +1979,7 @@ export class PGLiteEngine implements BrainEngine {
          FROM content_chunks cc
          JOIN pages p ON p.id = cc.page_id
          JOIN sources s ON s.id = p.source_id
-         WHERE cc.${col} IS NOT NULL ${modalityFilter} ${detailFilter}${extraFilter} ${hardExcludeClause} ${visibilityClause}
+         WHERE cc.${col} IS NOT NULL ${modalityFilter} ${detailFilter}${extraFilter} ${hardExcludeClause} ${onlySlugPrefixesClause} ${visibilityClause}
          ORDER BY cc.${col} <=> ${castSql}
          LIMIT $2
        ),

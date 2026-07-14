@@ -279,6 +279,32 @@ describe('caller-supplied exclude_slug_prefixes (additive)', () => {
     expect(slugs).toContain('archive/old-stuff/widget-2020');
   });
 
+  test('only_slug_prefixes is a fail-closed allow-list across keyword, vector, and hybrid', async () => {
+    const keyword = await engine.searchKeyword('widget', {
+      limit: 20,
+      only_slug_prefixes: ['concepts/'],
+    });
+    expect(keyword.length).toBeGreaterThan(0);
+    expect(keyword.every(r => r.slug.startsWith('concepts/'))).toBe(true);
+
+    const vector = await engine.searchVector(basisEmbedding(11), {
+      limit: 20,
+      only_slug_prefixes: ['concepts/'],
+    });
+    expect(vector.length).toBeGreaterThan(0);
+    expect(vector.every(r => r.slug.startsWith('concepts/'))).toBe(true);
+
+    const hybrid = await hybridSearch(engine, 'widget', {
+      limit: 20,
+      expansion: false,
+      only_slug_prefixes: ['concepts/'],
+    });
+    expect(hybrid.length).toBeGreaterThan(0);
+    expect(hybrid.every(r => r.slug.startsWith('concepts/'))).toBe(true);
+
+    expect(await engine.searchKeyword('widget', { only_slug_prefixes: [] })).toEqual([]);
+  });
+
   test('runtime_lanes is fail-closed across keyword, vector, and hybrid retrieval', async () => {
     const keyword = await engine.searchKeyword(
       'pitching diagnosis biomechanics widget mechanics',
@@ -314,6 +340,7 @@ describe('caller-supplied exclude_slug_prefixes (additive)', () => {
     const queryOp = operations.find(o => o.name === 'query')!;
     expect(queryOp.params.exclude_slug_prefixes).toBeDefined();
     expect(queryOp.params.include_slug_prefixes).toBeDefined();
+    expect(queryOp.params.only_slug_prefixes).toBeDefined();
     expect(queryOp.params.runtime_lanes).toBeDefined();
 
     const ctx: OperationContext = {
@@ -330,6 +357,7 @@ describe('caller-supplied exclude_slug_prefixes (additive)', () => {
       limit: 20,
       use_cache: true,
       exclude_slug_prefixes: ['00-command-center/caesar/'],
+      only_slug_prefixes: ['20-pitching/'],
       runtime_lanes: ['general'],
     }) as Array<{ slug: string }>;
 

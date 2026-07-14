@@ -3015,6 +3015,7 @@ export async function computeConversationFactsBacklogCheck(
       `SELECT COUNT(*) AS count FROM pages p
        WHERE p.type = ANY($1::text[])
          AND p.deleted_at IS NULL
+         AND COALESCE(p.frontmatter->>'extractable', 'true') <> 'false'
          AND NOT EXISTS (
            SELECT 1 FROM facts f
            WHERE f.source = 'cli:extract-conversation-facts:terminal'
@@ -4866,15 +4867,16 @@ export async function buildChecks(
       // PageFilters supports singular `type` only; iterate the 4 types
       // and cap at ~50/each to land at ~200 total max.
       const sample: import('../core/types.ts').Page[] = [];
+      const { isPageExtractable } = await import('../core/extraction-policy.ts');
       for (const t of allowedTypes) {
         const slice = await engine.listPages({ limit: 50, type: t as import('../core/types.ts').PageType });
-        sample.push(...slice);
+        sample.push(...slice.filter(isPageExtractable));
       }
       if (sample.length === 0) {
         checks.push({
           name: 'conversation_format_coverage',
           status: 'ok',
-          message: 'No conversation-type pages — coverage check not applicable',
+          message: 'No extractable conversation-type pages — coverage check not applicable',
         });
       } else {
         const hitsByPattern: Record<string, number> = {};

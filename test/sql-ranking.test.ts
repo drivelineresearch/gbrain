@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   buildSourceFactorCase,
   buildHardExcludeClause,
+  buildOnlySlugPrefixesClause,
   buildVisibilityClause,
   escapeLikePattern as topLevelEscapeLikePattern,
   __test__,
@@ -159,6 +160,21 @@ describe('buildHardExcludeClause', () => {
     const result = buildHardExcludeClause('p.slug', ['test/', '', 'archive/']);
     // Two LIKE clauses, one OR.
     expect((result.match(/LIKE/g) || []).length).toBe(2);
+  });
+});
+
+describe('buildOnlySlugPrefixesClause', () => {
+  test('undefined means no allow-list', () => {
+    expect(buildOnlySlugPrefixesClause('p.slug', undefined)).toBe('');
+  });
+
+  test('empty is fail-closed', () => {
+    expect(buildOnlySlugPrefixesClause('p.slug', [])).toBe('AND FALSE');
+  });
+
+  test('allows one or more escaped prefixes', () => {
+    expect(buildOnlySlugPrefixesClause('p.slug', ['semantic/pitching/', 'meeting_%/']))
+      .toBe("AND (p.slug LIKE 'semantic/pitching/%' OR p.slug LIKE 'meeting\\_\\%/%')");
   });
 });
 

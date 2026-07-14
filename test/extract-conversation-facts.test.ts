@@ -344,6 +344,25 @@ describe('runExtractConversationFactsCore', () => {
     expect(result.pages_considered).toBe(0);
   });
 
+  test('extractable:false conversation pages remain searchable but are not mined', async () => {
+    await engine.putPage('conversations/imessage/alice-example', {
+      type: 'conversation',
+      title: 'Source-only dialogue',
+      compiled_truth: SAMPLE_BODY,
+      timeline: '',
+      frontmatter: { extractable: false },
+    });
+    const result = await runExtractConversationFactsCore(engine, {
+      sourceId: 'default',
+      slug: 'conversations/imessage/alice-example',
+      dryRun: true,
+      sleepMs: 0,
+    });
+    expect(result.pages_considered).toBe(0);
+    expect(result.pages_processed).toBe(0);
+    expect(result.pages_skipped).toBe(1);
+  });
+
   test('sinceIso filters already-processed history', async () => {
     const result = await runExtractConversationFactsCore(engine, {
       sourceId: 'default',

@@ -180,6 +180,7 @@ export async function discoverExtractablePages(
       AND p.content_hash IS NOT NULL
       AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
       AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
+      AND COALESCE(p.frontmatter->>'extractable', 'true') <> 'false'
       AND length(COALESCE(p.compiled_truth, '')) >= $3
       ${hasFilter ? "AND p.slug = ANY($5::text[])" : ''}
       AND NOT EXISTS (
@@ -252,6 +253,7 @@ export async function countExtractAtomsBacklog(
            AND p.content_hash IS NOT NULL
            AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
            AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
+           AND COALESCE(p.frontmatter->>'extractable', 'true') <> 'false'
            AND length(COALESCE(p.compiled_truth, '')) >= $3
            AND NOT EXISTS (
              SELECT 1 FROM pages atom
@@ -265,6 +267,7 @@ export async function countExtractAtomsBacklog(
            AND p.content_hash IS NOT NULL
            AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
            AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
+           AND COALESCE(p.frontmatter->>'extractable', 'true') <> 'false'
            AND length(COALESCE(p.compiled_truth, '')) >= $2
            AND NOT EXISTS (
              SELECT 1 FROM pages atom

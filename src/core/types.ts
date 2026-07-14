@@ -947,6 +947,12 @@ export interface SearchOpts {
    */
   include_slug_prefixes?: string[];
   /**
+   * Fail-closed slug-prefix allow-list. When present, only matching page slugs
+   * are eligible. This is distinct from `include_slug_prefixes`, whose legacy
+   * contract only opts prefixes back into the hard-exclude policy.
+   */
+  only_slug_prefixes?: string[];
+  /**
    * Fail-closed frontmatter lane filter. When present, only pages whose
    * `frontmatter.runtime_lane` exactly matches one of these values are eligible;
    * unlabeled pages are excluded. Applied inside keyword/vector candidate SQL

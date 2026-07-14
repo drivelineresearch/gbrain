@@ -482,6 +482,25 @@ export async function extractPageLinks(
     // pre-v0.40.8.2 behavior of dropping bare wikilinks outside
     // DIR_PATTERN.
     if (ref.needsResolution) {
+      // A deep, already-canonical wikilink can fall outside DIR_PATTERN when
+      // a source uses its own folder hierarchy (for example,
+      // `raw/region/year/meeting/part-001`). Resolve that full slug exactly
+      // before considering basename resolution. This preserves the default
+      // fail-closed behavior for ambiguous bare links such as `[[part-001]]`.
+      if (ref.slug.includes('/') && typeof resolver.resolveExact === 'function') {
+        const exact = await resolver.resolveExact(ref.slug);
+        if (exact && exact !== slug) {
+          const idx = content.indexOf(ref.slug);
+          const context = idx >= 0 ? excerpt(content, idx, 240) : ref.name;
+          candidates.push({
+            targetSlug: exact,
+            linkType: inferLinkType(pageType, context, content, exact),
+            context,
+            linkSource: 'markdown',
+          });
+          continue;
+        }
+      }
       if (!opts.globalBasename || typeof resolver.resolveBasenameMatches !== 'function') {
         continue;
       }
@@ -800,6 +819,11 @@ export const FRONTMATTER_LINK_MAP: FrontmatterFieldMapping[] = [
 
 export interface SlugResolver {
   /**
+   * Resolve an already-canonical deep slug exactly. This is intentionally
+   * separate from fuzzy display-name and global-basename resolution.
+   */
+  resolveExact?(slug: string): Promise<string | null>;
+  /**
    * Resolve a display name to a canonical slug.
    * Returns null when no match meets confidence threshold — callers should
    * skip (not write a dead link) and the unresolved name goes into the
@@ -926,6 +950,19 @@ export function makeResolver(
   }
 
   return {
+    async resolveExact(slug: string): Promise<string | null> {
+      if (!slug || typeof slug !== 'string') return null;
+      const trimmed = slug.trim().replace(/\.md$/, '');
+      if (!/^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)+$/.test(trimmed)) {
+        return null;
+      }
+      const page = await engine.getPage(
+        trimmed,
+        opts.sourceId ? { sourceId: opts.sourceId } : undefined,
+      );
+      return page ? trimmed : null;
+    },
+
     async resolveBasenameMatches(name: string): Promise<string[]> {
       // Issue #972 (codex [P2] DRY): shared query so resolver + FS + doctor
       // return the same matches in the same stable order.

@@ -75,6 +75,13 @@ general doctrine and case precedent—from contaminating one retrieval call.
 Providing an empty lane array fails closed at the engine layer, and the MCP
 `query` operation rejects empty or unknown values before retrieval.
 
+For corpus partitions inside one source, use
+`query(only_slug_prefixes=[...])`. This is a fail-closed allow-list pushed into
+keyword/vector candidate SQL and reapplied after graph and alias augmentation.
+It is intentionally different from the older `include_slug_prefixes`, which
+only opts a normally hard-excluded prefix (such as `test/`) back into search.
+Calls with an explicit prefix allow-list bypass semantic query cache.
+
 ## Named-thing retrieval (per-page pool + title + alias + evidence)
 
 A brain organized around *chosen names* (Mingtang, Hall of Light) needs more than

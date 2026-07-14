@@ -39,10 +39,14 @@ function applySlugVisibilityPolicy(
   results: SearchResult[],
   excludePrefixes?: string[],
   includePrefixes?: string[],
+  onlyPrefixes?: string[],
 ): SearchResult[] {
+  const allowListed = onlyPrefixes === undefined
+    ? results
+    : results.filter(result => onlyPrefixes.some(prefix => result.slug.startsWith(prefix)));
   const excluded = resolveHardExcludes(excludePrefixes, includePrefixes);
-  if (excluded.length === 0) return results;
-  return results.filter(result => !excluded.some(prefix => result.slug.startsWith(prefix)));
+  if (excluded.length === 0) return allowListed;
+  return allowListed.filter(result => !excluded.some(prefix => result.slug.startsWith(prefix)));
 }
 
 async function applyRuntimeLanePolicy(
@@ -944,6 +948,7 @@ export async function hybridSearch(
     runtime_lanes: opts?.runtime_lanes,
     exclude_slug_prefixes: opts?.exclude_slug_prefixes,
     include_slug_prefixes: opts?.include_slug_prefixes,
+    only_slug_prefixes: opts?.only_slug_prefixes,
     // v0.36 (D11): pass the pre-validated descriptor into the engine so
     // it never has to read config. Engines normalize string-or-descriptor
     // via normalizeEngineColumn; the descriptor path is the strict one.
@@ -1069,6 +1074,7 @@ export async function hybridSearch(
       await applyRuntimeLanePolicy(engine, relationalList, opts?.runtime_lanes),
       opts?.exclude_slug_prefixes,
       opts?.include_slug_prefixes,
+      opts?.only_slug_prefixes,
     );
   }
 
@@ -1108,6 +1114,7 @@ export async function hybridSearch(
       ),
       opts?.exclude_slug_prefixes,
       opts?.include_slug_prefixes,
+      opts?.only_slug_prefixes,
     );
     stampEvidence(noEmbedHopped);
     const noEmbedSliced = noEmbedHopped.slice(offset, offset + limit);
@@ -1348,6 +1355,7 @@ export async function hybridSearch(
       ),
       opts?.exclude_slug_prefixes,
       opts?.include_slug_prefixes,
+      opts?.only_slug_prefixes,
     );
     stampEvidence(kwHopped);
     const kwSliced = kwHopped.slice(offset, offset + limit);
@@ -1533,6 +1541,7 @@ export async function hybridSearch(
     ),
     opts?.exclude_slug_prefixes,
     opts?.include_slug_prefixes,
+    opts?.only_slug_prefixes,
   );
 
   // T4 — stamp evidence + create_safety so the agent's don't-duplicate
@@ -1730,6 +1739,7 @@ export async function hybridSearchCached(
     adaptiveReturnOn ||
     Boolean(opts?.exclude_slug_prefixes?.length) ||
     Boolean(opts?.include_slug_prefixes?.length) ||
+    opts?.only_slug_prefixes !== undefined ||
     opts?.runtime_lanes !== undefined;
 
   let cacheStatus: 'hit' | 'miss' | 'disabled' = skipCache ? 'disabled' : 'miss';

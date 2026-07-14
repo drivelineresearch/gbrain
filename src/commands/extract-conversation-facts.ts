@@ -66,6 +66,7 @@
 
 import type { BrainEngine, NewFact } from '../core/engine.ts';
 import type { Page } from '../core/types.ts';
+import { isPageExtractable } from '../core/extraction-policy.ts';
 import {
   extractFactsFromTurn,
   isFactsExtractionEnabled,
@@ -993,6 +994,10 @@ export async function runExtractConversationFactsCore(
         result.pages_skipped++;
         return;
       }
+      if (!isPageExtractable(page)) {
+        result.pages_skipped++;
+        return;
+      }
 
       await processPageWithLock(page);
     } else {
@@ -1020,10 +1025,12 @@ export async function runExtractConversationFactsCore(
 
           // Respect --limit at batch granularity: clip the batch so we
           // never overshoot the cap by `workers - 1` extra pages.
-          let claimable = batch;
+          const extractableBatch = batch.filter(isPageExtractable);
+          result.pages_skipped += batch.length - extractableBatch.length;
+          let claimable = extractableBatch;
           if (opts.limit) {
             const remaining = opts.limit - processedPagesCount;
-            if (remaining < batch.length) claimable = batch.slice(0, remaining);
+            if (remaining < extractableBatch.length) claimable = extractableBatch.slice(0, remaining);
           }
 
           await runSlidingPool({

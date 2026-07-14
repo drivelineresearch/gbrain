@@ -1587,6 +1587,12 @@ const query: Operation = {
       description:
         'Opt specific slug prefixes back into this query. These are applied inside retrieval and force a fresh search so a cache row from a different visibility policy cannot leak through.',
     },
+    only_slug_prefixes: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Fail-closed slug-prefix allow-list. When provided, only matching slugs are eligible. This is distinct from include_slug_prefixes, which only opts a normally excluded prefix back in.',
+    },
     runtime_lanes: {
       type: 'array',
       items: { type: 'string' },
@@ -1668,6 +1674,9 @@ const query: Operation = {
         offset: (p.offset as number) || 0,
         embeddingColumn: 'embedding_image',
         runtime_lanes: runtimeLanes,
+        only_slug_prefixes: Array.isArray(p.only_slug_prefixes)
+          ? (p.only_slug_prefixes as string[])
+          : undefined,
         ...querySourceScope,
       });
       return results;
@@ -1708,6 +1717,9 @@ const query: Operation = {
         : undefined,
       include_slug_prefixes: Array.isArray(p.include_slug_prefixes)
         ? (p.include_slug_prefixes as string[])
+        : undefined,
+      only_slug_prefixes: Array.isArray(p.only_slug_prefixes)
+        ? (p.only_slug_prefixes as string[])
         : undefined,
       runtime_lanes: runtimeLanes,
       // v0.29.1 — agent-explicit recency + salience. Omitted = heuristic defaults.

@@ -68,11 +68,15 @@ describe('countExtractAtomsBacklog (issue #1678)', () => {
     expect(await countExtractAtomsBacklog(engine)).toBe(0);
   });
 
-  it('ignores short pages and dream-generated pages', async () => {
+  it('ignores short, dream-generated, and explicitly non-extractable pages', async () => {
     await engine.putPage('article-short', { type: 'article', title: 's', compiled_truth: 'too short' });
     await engine.putPage('article-dream', {
       type: 'article', title: 'd', compiled_truth: BODY,
       frontmatter: { dream_generated: 'true' },
+    });
+    await engine.putPage('article-source-material', {
+      type: 'article', title: 'source material', compiled_truth: BODY,
+      frontmatter: { extractable: false },
     });
     expect(await countExtractAtomsBacklog(engine)).toBe(0);
   });

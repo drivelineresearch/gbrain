@@ -62,7 +62,7 @@ import { ConnectionManager } from './connection-manager.ts';
 import { logConnectionEvent } from './connection-audit.ts';
 import { validateSlug, contentHash, rowToPage, rowToStalePage, rowToChunk, rowToSearchResult, parseEmbedding, tryParseEmbedding, takeRowToTake, isUndefinedTableError, warnOncePerProcess } from './utils.ts';
 import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
-import { buildSourceFactorCase, buildHardExcludeClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
+import { buildSourceFactorCase, buildHardExcludeClause, buildOnlySlugPrefixesClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
 import { DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMENSIONS } from './ai/defaults.ts';
 import { DELETE_BATCH_SIZE } from './engine-constants.ts';
 
@@ -1567,6 +1567,7 @@ export class PostgresEngine implements BrainEngine {
     const sourceFactorCase = buildSourceFactorCase('p.slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
 
     const params: unknown[] = [query];
     let typeClause = '';
@@ -1666,6 +1667,7 @@ export class PostgresEngine implements BrainEngine {
           ${sourceClause}
           ${runtimeLaneClause}
           ${hardExcludeClause}
+          ${onlySlugPrefixesClause}
           ${visibilityClause}
           -- v0.27.1: hide image rows from text-keyword search so OCR text
           -- doesn't drown text-page hits. Image search runs a separate
@@ -1725,6 +1727,7 @@ export class PostgresEngine implements BrainEngine {
     const sourceFactorCase = buildSourceFactorCase('p.slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
 
     const params: unknown[] = [query];
     let typeClause = '';
@@ -1814,6 +1817,7 @@ export class PostgresEngine implements BrainEngine {
         ${sourceClause}
         ${runtimeLaneClause}
         ${hardExcludeClause}
+        ${onlySlugPrefixesClause}
         ${visibilityClause}
       ORDER BY score DESC
       LIMIT ${limitParam}
@@ -1855,6 +1859,7 @@ export class PostgresEngine implements BrainEngine {
     const sourceFactorCaseOnSlug = buildSourceFactorCase('slug', boostMap, opts?.detail);
     const hardExcludePrefixes = resolveHardExcludes(opts?.exclude_slug_prefixes, opts?.include_slug_prefixes);
     const hardExcludeClause = buildHardExcludeClause('p.slug', hardExcludePrefixes);
+    const onlySlugPrefixesClause = buildOnlySlugPrefixesClause('p.slug', opts?.only_slug_prefixes);
     const innerLimit = offset + Math.max(limit * 5, 100);
 
     const params: unknown[] = [vecStr];
@@ -1972,6 +1977,7 @@ export class PostgresEngine implements BrainEngine {
           ${sourceClause}
           ${runtimeLaneClause}
           ${hardExcludeClause}
+          ${onlySlugPrefixesClause}
           ${visibilityClause}
         ORDER BY cc.${col} <=> ${castSql}
         LIMIT ${innerLimitParam}

@@ -111,6 +111,23 @@ export function buildHardExcludeClause(slugColumn: string, prefixes: string[]): 
 }
 
 /**
+ * Build a fail-closed slug-prefix allow-list.
+ *
+ * Unlike `include_slug_prefixes` (which only opts a prefix back in after the
+ * default hard-exclude policy), this clause means ONLY matching prefixes are
+ * eligible. An explicitly empty list therefore produces `AND FALSE`.
+ */
+export function buildOnlySlugPrefixesClause(slugColumn: string, prefixes: string[] | undefined): string {
+  if (prefixes === undefined) return '';
+  const likes = prefixes
+    .filter(p => p.length > 0)
+    .map(p => `${slugColumn} LIKE ${buildLikePrefixLiteral(p)}`)
+    .join(' OR ');
+  if (!likes) return 'AND FALSE';
+  return `AND (${likes})`;
+}
+
+/**
  * v0.26.5 — Build the soft-delete + archived-source visibility filter.
  *
  * Two filters in one fragment:

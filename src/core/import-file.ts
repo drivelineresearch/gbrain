@@ -913,6 +913,13 @@ export async function importFromFile(
     sourceId?: string;
     forceRechunk?: boolean;
     /**
+     * Import generated markdown into a source without binding the page to
+     * this staging path. Full source syncs only reconcile file-backed pages
+     * (`source_path IS NOT NULL`), so detached pages survive authoritative
+     * Git syncs and remain owned by their generator/import job.
+     */
+    detached?: boolean;
+    /**
      * v0.39 T1.5: active schema pack threaded through to importFromContent so
      * `parseMarkdown` uses pack-driven type inference. Load ONCE per command;
      * never per file (codex perf finding #7).
@@ -1013,10 +1020,13 @@ export async function importFromFile(
   // precedence in computeEffectiveDate. e.g. `daily/2024-03-15.md` →
   // filename `2024-03-15`.
   const fileBasename = basename(relativePath, '.md');
+  const { detached, ...contentOpts } = opts;
   return importFromContent(engine, resolvedSlug, content, {
-    ...opts,
+    ...contentOpts,
     filename: fileBasename,
-    sourcePath: relativePath,
+    sourcePath: detached ? undefined : relativePath,
+    source_kind: detached ? 'generated' : undefined,
+    ingested_via: detached ? 'cli:import-detached' : undefined,
   });
 }
 

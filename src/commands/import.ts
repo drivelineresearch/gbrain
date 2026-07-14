@@ -48,6 +48,7 @@ export async function runImport(
   opts: { commit?: string; strategy?: SyncStrategy; sourceId?: string; managedBookmark?: boolean } = {},
 ): Promise<RunImportResult> {
   const noEmbed = args.includes('--no-embed');
+  const detached = args.includes('--detached');
   const fresh = args.includes('--fresh');
   const jsonOutput = args.includes('--json');
 
@@ -164,7 +165,7 @@ export async function runImport(
   const dirArg = args.find((a, i) => !a.startsWith('--') && !flagValues.has(i));
 
   if (!dirArg) {
-    console.error('Usage: gbrain import <dir> [--no-embed] [--workers N] [--fresh] [--source-id <id>] [--json]');
+    console.error('Usage: gbrain import <dir> [--no-embed] [--detached] [--workers N] [--fresh] [--source-id <id>] [--json]');
     process.exit(1);
   }
   const dir: string = dirArg;  // narrowed; survives closure capture
@@ -239,7 +240,12 @@ export async function runImport(
       // unreachable when the gate is off; defense-in-depth check anyway.
       const result = isImageFilePath(relativePath) && process.env.GBRAIN_EMBEDDING_MULTIMODAL === 'true'
         ? await importImageFile(eng, filePath, relativePath, { noEmbed, sourceId })
-        : await importFile(eng, filePath, relativePath, { noEmbed, sourceId, activePack: importActivePack });
+        : await importFile(eng, filePath, relativePath, {
+            noEmbed,
+            sourceId,
+            activePack: importActivePack,
+            detached,
+          });
       const _fileMs = Date.now() - _fileT0;
       if (_fileMs > 5000) {
         console.error(`[gbrain phase] import.process_file slow ${_fileMs}ms ${relativePath}`);

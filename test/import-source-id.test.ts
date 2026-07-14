@@ -99,4 +99,40 @@ describe('import --source-id (#1167)', () => {
     );
     expect(rows[0]?.source_id).toBe('dept-x');
   });
+
+  test('--detached stores generated provenance without a sync-owned source path', async () => {
+    await runImport(engine, [
+      scratchDir,
+      '--source-id',
+      'dept-x',
+      '--detached',
+      '--no-embed',
+      '--json',
+    ]);
+    const rows = await engine.executeRaw<{
+      source_id: string;
+      source_path: string | null;
+      source_kind: string | null;
+      ingested_via: string | null;
+    }>(
+      `SELECT source_id, source_path, source_kind, ingested_via
+       FROM pages
+       ORDER BY slug`,
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    for (const r of rows) {
+      expect(r.source_id).toBe('dept-x');
+      expect(r.source_path).toBeNull();
+      expect(r.source_kind).toBe('generated');
+      expect(r.ingested_via).toBe('cli:import-detached');
+    }
+  });
+
+  test('ordinary imports remain file-backed for authoritative sync cleanup', async () => {
+    await runImport(engine, [scratchDir, '--source-id', 'dept-x', '--no-embed', '--json']);
+    const rows = await engine.executeRaw<{ source_path: string | null }>(
+      `SELECT source_path FROM pages ORDER BY slug`,
+    );
+    expect(rows.map(r => r.source_path)).toEqual(['wiki/alpha.md', 'wiki/beta.md']);
+  });
 });

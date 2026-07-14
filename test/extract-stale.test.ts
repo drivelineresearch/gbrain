@@ -119,6 +119,30 @@ describe('gbrain extract --stale', () => {
     expect(await engine.countStalePagesForExtraction({ versionTs: LINK_EXTRACTOR_VERSION_TS })).toBe(0);
   });
 
+  test('resolves deep same-source wikilinks without enabling frontmatter extraction', async () => {
+    await engine.putPage('precedent/meetings/raw/wa/2026/meeting/part-001', {
+      type: 'meeting',
+      title: 'Raw meeting part',
+      compiled_truth: 'Source dialogue.',
+      timeline: '',
+    });
+    await engine.putPage('precedent/meetings/semantic/pitching/2026/meeting/part-001', {
+      type: 'meeting',
+      title: 'Semantic meeting part',
+      compiled_truth: 'Raw source: [[precedent/meetings/raw/wa/2026/meeting/part-001]].',
+      timeline: '',
+      // If stale extraction accidentally enables frontmatter, this would add a
+      // second edge. The default contract is body links only.
+      frontmatter: { related: ['precedent/meetings/raw/wa/2026/meeting/part-001'] },
+    });
+
+    await runExtract(engine, ['--stale']);
+
+    const links = await engine.getLinks('precedent/meetings/semantic/pitching/2026/meeting/part-001');
+    expect(links.filter(link => link.to_slug === 'precedent/meetings/raw/wa/2026/meeting/part-001')).toHaveLength(1);
+    expect(links[0]?.link_source).toBe('markdown');
+  });
+
   test('idempotent: second run finds 0 stale and creates no new links', async () => {
     await engine.putPage('people/alice', personPage('Alice'));
     await engine.putPage('companies/acme', companyPage('Acme', '[Alice](people/alice) advises [Acme](companies/acme).'));
@@ -188,7 +212,7 @@ describe('gbrain extract --stale', () => {
     await engine.putPage('companies/acme', companyPage('Acme', '[Alice](people/alice) advises [Acme](companies/acme).'));
     // Microsecond-precision updated_at, recent (after LINK_EXTRACTOR_VERSION_TS) so the
     // version arm doesn't fire — the edited arm is what must clear.
-    await engine.executeRaw(`UPDATE pages SET updated_at = '2026-06-02 08:18:58.999166+00'`);
+    await engine.executeRaw(`UPDATE pages SET updated_at = '2026-07-14 08:18:58.999166+00'`);
     expect(await engine.countStalePagesForExtraction({ versionTs: LINK_EXTRACTOR_VERSION_TS })).toBe(2);
 
     await runExtract(engine, ['--stale']);

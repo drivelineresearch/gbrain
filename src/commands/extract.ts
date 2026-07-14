@@ -1616,9 +1616,13 @@ async function extractStaleFromDB(
   // Batch mode = pg_trgm + exact only, NO per-name search fallback. The
   // resolution map sees ALL sources so qualified cross-source wikilinks resolve
   // even when --source-id scopes the stale SCAN.
-  const resolver = makeResolver(engine, { mode: 'batch' });
-  const nullResolver = { resolve: async () => null as string | null };
-  const activeResolver = includeFrontmatter ? resolver : nullResolver;
+  const resolver = makeResolver(engine, { mode: 'batch', sourceId: sourceIdFilter });
+  // Keep markdown resolution independent from frontmatter extraction. The old
+  // null-resolver shortcut disabled not only frontmatter, but also exact deep
+  // wikilinks such as [[precedent/meetings/raw/...]] and the opt-in basename
+  // path. `skipFrontmatter` is the narrow switch; the real resolver must stay
+  // available for body links on every stale sweep.
+  const globalBasename = await isGlobalBasenameEnabled(engine);
   const allRefs = await engine.listAllPageRefs();
   const allSlugs = new Set<string>();
   const slugToSources = new Map<string, string[]>();
@@ -1650,7 +1654,12 @@ async function extractStaleFromDB(
     for (const page of rows) {
       const fullContent = page.compiled_truth + '\n' + page.timeline;
       const extracted = await extractPageLinks(
-        page.slug, fullContent, page.frontmatter, page.type, activeResolver,
+        page.slug,
+        fullContent,
+        page.frontmatter,
+        page.type,
+        resolver,
+        { globalBasename, skipFrontmatter: !includeFrontmatter },
       );
       for (const c of extracted.candidates) {
         const r = resolveCandidateSources(c, page.slug, page.source_id, allSlugs, slugToSources);

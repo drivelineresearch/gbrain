@@ -322,10 +322,13 @@ if [ ! -d /app/node_modules ] || [ -z "$(ls -A /app/node_modules 2>/dev/null)" ]
   echo "[runner] First run (or --clean): bun install --frozen-lockfile"
   bun install --frozen-lockfile
 fi
-__RUN_PHASES__
 EOF
 )
-INNER_CMD="${INNER_CMD/__RUN_PHASES__/$RUN_PHASES_CMD}"
+# Append instead of using Bash pattern replacement. In a replacement string,
+# `&` expands to the matched text, which silently rewrote every `2>&1` in
+# RUN_PHASES_CMD to `2>__RUN_PHASES__1` and left a large root-owned artifact
+# in the bind-mounted worktree.
+INNER_CMD="${INNER_CMD}"$'\n'"${RUN_PHASES_CMD}"
 
 # Conductor / git-worktree support: when `.git` is a file (not a directory),
 # it points at a host gitdir outside the bind-mount. Without remounting that

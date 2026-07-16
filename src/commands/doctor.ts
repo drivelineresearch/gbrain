@@ -51,6 +51,7 @@ import { isUndefinedColumnError } from '../core/utils.ts';
 // drift from what search actually filters.
 import { resolveHardExcludes, DEFAULT_HARD_EXCLUDES } from '../core/search/source-boost.ts';
 import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
+import type { RerankFailureEvent } from '../core/rerank-audit.ts';
 
 export interface Check {
   name: string;
@@ -1424,6 +1425,15 @@ export async function checkVoiceGateHealth(engine: BrainEngine): Promise<Check> 
   }
 }
 
+/** Keep historical audit rows while scoring only the provider:model in service. */
+export function failuresForConfiguredReranker(
+  failures: RerankFailureEvent[],
+  configuredModel: string | undefined,
+): RerankFailureEvent[] {
+  const activeModel = configuredModel?.trim();
+  return activeModel ? failures.filter((failure) => failure.model === activeModel) : failures;
+}
+
 /**
  * v0.35.0.0+ reranker_health doctor check.
  *
@@ -1446,8 +1456,12 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
     const { readRecentRerankFailures } = await import('../core/rerank-audit.ts');
     const cfg = await engine.getConfig('search.reranker.enabled');
     const rerankerEnabled = cfg === 'true' || cfg === '1';
+    const configuredModel = await engine.getConfig('search.reranker.model');
 
-    const failures = readRecentRerankFailures(7);
+    const failures = failuresForConfiguredReranker(
+      readRecentRerankFailures(7),
+      configuredModel ?? undefined,
+    );
     if (failures.length === 0) {
       return {
         name: 'reranker_health',
@@ -1463,7 +1477,7 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
       return {
         name: 'reranker_health',
         status: 'warn',
-        message: `${authFails.length} reranker auth failure(s) in last 7 days. Fix: verify ZEROENTROPY_API_KEY and run \`gbrain models doctor\`.`,
+        message: `${authFails.length} reranker auth failure(s) in last 7 days for ${configuredModel ?? 'the configured model'}. Fix: verify that provider's credentials and run \`gbrain models doctor\`.`,
       };
     }
 
@@ -1483,7 +1497,7 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
       return {
         name: 'reranker_health',
         status: 'warn',
-        message: `${transientFails.length} transient reranker failure(s) in last 7 days. Search fails open to RRF order; check ZE status if persistent.`,
+        message: `${transientFails.length} transient reranker failure(s) in last 7 days for ${configuredModel ?? 'the configured model'}. Search fails open to RRF order; check the active provider if persistent.`,
       };
     }
 

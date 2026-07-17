@@ -405,6 +405,7 @@ Query: "when should you ignore conventional wisdom?"
 | Recursive | Any text | 5-level delimiter hierarchy (paragraphs > lines > sentences > clauses > whitespace). 300-word chunks, 50-word overlap. | Timeline (predictable format), bulk import |
 | Semantic | Quality text | Embed each sentence, Savitzky-Golay filter for topic boundaries, cosine similarity minima. Falls back to recursive. | Compiled truth (intelligence assessments) |
 | LLM-guided | High-value text | Pre-split to 128-word candidates, Claude Haiku finds topic shifts in sliding windows. 3 retries per window. | Explicitly requested via `--chunker llm` |
+| Atomic | Pre-analyzed bounded text | Preserves the complete compiled-truth body as one retrieval chunk; rejects bodies over 6,000 characters. | Upstream semantic chunks whose original boundary is authoritative. Set `chunk_strategy: atomic` in frontmatter. |
 
 Dispatch: compiled_truth gets semantic chunker. Timeline gets recursive chunker. Override with `--chunker` flag or `chunk_strategy` in frontmatter.
 

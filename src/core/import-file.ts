@@ -206,6 +206,43 @@ export interface ImportResult {
 const MAX_FILE_SIZE = 5_000_000; // 5MB
 
 /**
+ * Maximum body size for an opt-in atomic markdown retrieval unit.
+ *
+ * `chunk_strategy: atomic` is intended for upstream systems that have already
+ * produced a bounded semantic chunk and need gbrain to preserve that boundary
+ * exactly. The cap matches the recursive chunker's embedding safety belt. We
+ * fail closed instead of silently splitting because a split would violate the
+ * source's retrieval contract while appearing to import successfully.
+ *
+ * This opt-in does not require a global MARKDOWN_CHUNKER_VERSION bump: the
+ * strategy lives in frontmatter, frontmatter participates in content_hash, and
+ * pages without the field retain the existing recursive behavior.
+ */
+export const ATOMIC_CHUNK_MAX_CHARS = 6_000;
+
+function compiledTruthChunks(
+  text: string,
+  frontmatter: Record<string, unknown>,
+): ReturnType<typeof chunkText> {
+  if (frontmatter.chunk_strategy !== 'atomic') return chunkText(text);
+  const normalized = text.trim();
+  if (normalized.length > ATOMIC_CHUNK_MAX_CHARS) {
+    throw new Error(
+      `[import] atomic chunk exceeds ${ATOMIC_CHUNK_MAX_CHARS} characters ` +
+      `(${normalized.length}); reduce the upstream semantic unit instead of splitting it`,
+    );
+  }
+  // Route through the canonical chunker so takes/facts visibility stripping
+  // remains enforced. A deliberately high word target preserves one unit; the
+  // explicit cap above guarantees the embedding-safe character bound.
+  return chunkText(normalized, {
+    chunkSize: Number.MAX_SAFE_INTEGER,
+    chunkOverlap: 0,
+    maxChars: ATOMIC_CHUNK_MAX_CHARS,
+  });
+}
+
+/**
  * Import content from a string. Core pipeline:
  * parse -> hash -> embed (external) -> transaction(version + putPage + tags + chunks)
  *
@@ -640,7 +677,7 @@ export async function importFromContent(
   const embedSkipped = isEmbedSkipped(parsed.frontmatter) || isQuarantined(parsed.frontmatter);
   if (!embedSkipped) {
     if (parsed.compiled_truth.trim()) {
-      for (const c of chunkText(parsed.compiled_truth)) {
+      for (const c of compiledTruthChunks(parsed.compiled_truth, parsed.frontmatter)) {
         chunks.push({ chunk_index: chunks.length, chunk_text: c.text, chunk_source: 'compiled_truth' });
       }
     }

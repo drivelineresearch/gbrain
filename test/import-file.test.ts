@@ -414,6 +414,62 @@ ${longText}
       }
     }
   });
+
+  test('chunk_strategy atomic preserves one pre-analyzed retrieval unit', async () => {
+    const body = Array.from(
+      { length: 500 },
+      (_, index) => `token-${index}`,
+    ).join(' ');
+    const content = `---
+type: note
+title: Atomic semantic evidence
+chunk_strategy: atomic
+---
+
+${body}
+`;
+
+    const engine = mockEngine();
+    const result = await importFromContent(
+      engine,
+      'precedent/atomic-evidence',
+      content,
+      { noEmbed: true },
+    );
+
+    expect(result.status).toBe('imported');
+    expect(result.chunks).toBe(1);
+    const chunkCall = (engine as any)._calls.find(
+      (call: any) => call.method === 'upsertChunks',
+    );
+    expect(chunkCall).toBeTruthy();
+    expect(chunkCall.args[1]).toHaveLength(1);
+    expect(chunkCall.args[1][0].chunk_source).toBe('compiled_truth');
+    expect(chunkCall.args[1][0].chunk_text).toContain('token-0');
+    expect(chunkCall.args[1][0].chunk_text).toContain('token-499');
+  });
+
+  test('chunk_strategy atomic fails closed above the embedding-safe limit', async () => {
+    const content = `---
+type: note
+title: Oversized atomic evidence
+chunk_strategy: atomic
+---
+
+${'semantic evidence '.repeat(400)}
+`;
+
+    const engine = mockEngine();
+    await expect(importFromContent(
+      engine,
+      'precedent/oversized-atomic-evidence',
+      content,
+      { noEmbed: true },
+    )).rejects.toThrow('atomic chunk exceeds');
+    expect(
+      (engine as any)._calls.some((call: any) => call.method === 'upsertChunks'),
+    ).toBe(false);
+  });
 });
 
 describe('importFile — CJK wave (v0.32.7)', () => {

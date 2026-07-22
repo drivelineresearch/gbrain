@@ -54,7 +54,7 @@ export function OperationsPage() {
         <div className="run-log">{ops?.recent_runs.slice(0, 12).map((r: any, i: number) => <div key={`${r.unit}-${r.at}-${i}`}><time>{new Date(r.at).toLocaleString()}</time><strong>{r.unit}</strong><span>{r.message}</span></div>)}{ops?.recent_runs.length === 0 && <div className="panel-state">No host events in the snapshot window.</div>}</div>
       </section>
     </div>
-    <section className="data-panel"><div className="panel-heading"><h2>Job history</h2><select aria-label="Filter job status" value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option><option>completed</option><option>failed</option><option>dead</option><option>active</option><option>waiting</option></select></div>
+    <section className="data-panel job-history-panel"><div className="panel-heading"><h2>Job history</h2><select aria-label="Filter job status" value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option><option>completed</option><option>failed</option><option>dead</option><option>active</option><option>waiting</option></select></div>
       <table><thead><tr><th>ID</th><th>Job</th><th>Status</th><th>Attempts</th><th>Duration</th><th>Started</th><th>Error</th></tr></thead><tbody>
         {jobs.map((j: any) => <tr key={j.id}><td className="mono">{j.id}</td><td><strong>{j.name}</strong><div className="slug">{j.queue}</div></td><td><Status value={j.status} /></td><td className="mono">{j.attempts_made}/{j.max_attempts}</td><td className="mono">{j.duration_ms == null ? '—' : `${j.duration_ms} ms`}</td><td>{j.started_at ? new Date(j.started_at).toLocaleString() : '—'}</td><td className="error-cell">{j.error_text || '—'}</td></tr>)}
       </tbody></table>

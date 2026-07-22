@@ -1343,7 +1343,12 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     }
   });
 
-  // Legacy API keys (access_tokens table)
+  // Legacy API keys (access_tokens table). Unified Caesar clients share this table,
+  // so every legacy path excludes them: a DBrain-only revoke of a unified client
+  // would leave its token alive on Caesar — exactly the drift the Caesar page prevents.
+  const unifiedClientNames = async () =>
+    new Set(Object.keys((await readCaesarRegistry()).clients ?? {}));
+
   app.get('/admin/api/api-keys', requireAdmin, async (_req: Request, res: Response) => {
     try {
       const keys = await sql`
@@ -1351,7 +1356,8 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
           CASE WHEN revoked_at IS NOT NULL THEN 'revoked' ELSE 'active' END as status
         FROM access_tokens ORDER BY created_at DESC
       `;
-      res.json(keys);
+      const unified = await unifiedClientNames();
+      res.json(keys.filter((key) => !unified.has(String(key.name))));
     } catch (e) {
       res.status(503).json({ error: 'service_unavailable' });
     }
@@ -1361,6 +1367,12 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     try {
       const { name } = req.body;
       if (!name) { res.status(400).json({ error: 'Name required' }); return; }
+      if ((await unifiedClientNames()).has(String(name))) {
+        res.status(409).json({
+          error: `'${name}' is a unified Caesar client; manage it on the Caesar MCP page`,
+        });
+        return;
+      }
       const { generateToken, hashToken } = await import('../core/utils.ts');
       const token = generateToken('gbrain_');
       const hash = hashToken(token);
@@ -1376,6 +1388,12 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     try {
       const { name } = req.body;
       if (!name) { res.status(400).json({ error: 'Name required' }); return; }
+      if ((await unifiedClientNames()).has(String(name))) {
+        res.status(409).json({
+          error: `'${name}' is a unified Caesar client; revoke it on the Caesar MCP page so BOTH stores close`,
+        });
+        return;
+      }
       await sql`UPDATE access_tokens SET revoked_at = now() WHERE name = ${name} AND revoked_at IS NULL`;
       res.json({ revoked: true });
     } catch (e) {
@@ -1427,7 +1445,16 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
         });
         return;
       }
+      // Capacity is checked BEFORE issuing: a claim-store failure after dual-issue
+      // would revoke the previous token and lose the new plaintext entirely.
+      if (delivery !== 'token' && !caesarClaims.hasCapacity()) {
+        res.status(429).json({ error: 'too many pending enrollment codes; revoke or wait for expiry' });
+        return;
+      }
       const token = await issueUnifiedClient(sql, String(name));
+      // Any prior pending code for this name now holds a revoked token — kill it
+      // regardless of delivery mode.
+      caesarClaims.invalidateClient(String(name));
       if (delivery === 'token') {
         res.json({ name, token });
         return;
@@ -1442,10 +1469,16 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   app.post('/admin/api/caesar/clients/revoke', requireAdmin, express.json(), async (req: Request, res: Response) => {
     const { name } = req.body ?? {};
     if (!name) { res.status(400).json({ error: 'Name required' }); return; }
-    const result = await revokeUnifiedClient(sql, String(name));
-    // A revoked client must not have a live enrollment code handing out its dead token.
+    // Invalidate BEFORE the async store mutations: a code redeemed mid-revocation
+    // could otherwise hand out a token that one store still accepts.
     caesarClaims.invalidateClient(String(name));
-    res.status(result.errors.length ? 207 : 200).json(result);
+    const result = await revokeUnifiedClient(sql, String(name));
+    if (result.errors.length) {
+      // Non-2xx so the dashboard surfaces the partial failure instead of a green tick.
+      res.status(502).json({ ...result, error: result.errors.join('; ') });
+      return;
+    }
+    res.json(result);
   });
 
   // Public single-use enrollment exchange. The claim code is the only secret the

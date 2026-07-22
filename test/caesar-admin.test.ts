@@ -220,3 +220,47 @@ describe('CLIENT_NAME', () => {
     expect(CLIENT_NAME.test('bad name')).toBe(false);
   });
 });
+
+describe('withClientLock serialization', () => {
+  it('two concurrent issues for one name cannot interleave their revoke sweeps', async () => {
+    const { sql, statements } = fakeSql();
+    const registry = async () => ({ clients: { 'coach-a': { enabled: true } } });
+    const slowCli = async () => { await new Promise((resolve) => setTimeout(resolve, 10)); };
+    const [first, second] = await Promise.all([
+      issueUnifiedClient(sql, 'coach-a', { cli: slowCli, loadRegistry: registry }),
+      issueUnifiedClient(sql, 'coach-a', { cli: slowCli, loadRegistry: registry }),
+    ]);
+    expect(first).not.toBe(second);
+    // Serialized: INSERT, revoke-others, INSERT, revoke-others — never two INSERTs
+    // back-to-back, which is the interleaving that mutually revokes both new rows.
+    const kinds = statements.map((statement) => statement.split(' ')[0]);
+    expect(kinds).toEqual(['INSERT', 'UPDATE', 'INSERT', 'UPDATE']);
+  });
+
+  it('a failed issue does not block the next mutation for the same name', async () => {
+    const { sql } = fakeSql();
+    const registry = async () => ({ clients: { 'coach-b': { enabled: true } } });
+    await expect(
+      issueUnifiedClient(sql, 'coach-b', {
+        cli: async () => { throw new Error('caesar down'); },
+        loadRegistry: registry,
+      }),
+    ).rejects.toThrow('caesar down');
+    const token = await issueUnifiedClient(sql, 'coach-b', {
+      cli: async () => {},
+      loadRegistry: registry,
+    });
+    expect(token.startsWith('dl_')).toBe(true);
+  });
+});
+
+describe('ClaimStore.hasCapacity', () => {
+  it('reports false once the pending cap is reached', () => {
+    const store = new ClaimStore();
+    for (let index = 0; index < 200; index += 1) {
+      store.create(`cap-${index}`, 't'.repeat(48), 1_000);
+    }
+    expect(store.hasCapacity(1_000)).toBe(false);
+    expect(store.hasCapacity(1_000 + CLAIM_TTL_MS + 1)).toBe(true);
+  });
+});

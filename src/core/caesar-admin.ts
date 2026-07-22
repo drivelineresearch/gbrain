@@ -105,6 +105,12 @@ export class ClaimStore {
     }
   }
 
+  /** Check BEFORE issuing: a capacity failure after dual-issue would lose the new token. */
+  hasCapacity(now = Date.now()): boolean {
+    this.sweep(now);
+    return this.pending.size < CLAIM_MAX_PENDING;
+  }
+
   /** Kill any outstanding code for a client (revocation, or re-issue superseding it). */
   invalidateClient(clientName: string): void {
     for (const [code, entry] of this.pending) {
@@ -261,6 +267,22 @@ export interface IssueDeps {
   loadRegistry?: typeof readCaesarRegistry;
 }
 
+// Serialize mutations per client name. Two concurrent issues for one name would
+// otherwise interleave their revoke-others sweeps and leave the client with a
+// Caesar-valid token that DBrain has already revoked.
+const clientLocks = new Map<string, Promise<unknown>>();
+
+export function withClientLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const prev = clientLocks.get(name) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(() => undefined, () => undefined);
+  clientLocks.set(name, tail);
+  void tail.then(() => {
+    if (clientLocks.get(name) === tail) clientLocks.delete(name);
+  });
+  return run;
+}
+
 /**
  * Issue one Driveline token registered in both stores.
  *
@@ -270,79 +292,83 @@ export interface IssueDeps {
  * leaves the previous token fully valid in BOTH stores — a failed rotation changes
  * nothing, and can never strand a leaked token half-revoked.
  */
-export async function issueUnifiedClient(
+export function issueUnifiedClient(
   sql: SqlQuery,
   name: string,
   deps: IssueDeps = {},
 ): Promise<string> {
-  const cli = deps.cli ?? caesarAdminCli;
-  const loadRegistry = deps.loadRegistry ?? readCaesarRegistry;
   if (!CLIENT_NAME.test(name)) {
     throw new Error('client name must use 1-64 letters, numbers, dot, underscore, or dash');
   }
-  // Legacy `gbrain_` API keys share the access_tokens namespace. Refuse to adopt a name
-  // that already has an active DBrain row but no Caesar registry entry — issuing would
-  // silently revoke someone's unrelated key on rotation.
-  const registry = await loadRegistry();
-  if (!registry.clients?.[name]) {
-    const existing = await sql`
-      SELECT id FROM access_tokens WHERE name = ${name} AND revoked_at IS NULL LIMIT 1
-    `;
-    if (existing.length > 0) {
-      throw new Error(
-        `'${name}' already names an active DBrain API key; pick a different client name ` +
-        'or revoke the legacy key on the Agents page first',
-      );
+  return withClientLock(name, async () => {
+    const cli = deps.cli ?? caesarAdminCli;
+    const loadRegistry = deps.loadRegistry ?? readCaesarRegistry;
+    // Legacy `gbrain_` API keys share the access_tokens namespace. Refuse to adopt a name
+    // that already has an active DBrain row but no Caesar registry entry — issuing would
+    // silently revoke someone's unrelated key on rotation.
+    const registry = await loadRegistry();
+    if (!registry.clients?.[name]) {
+      const existing = await sql`
+        SELECT id FROM access_tokens WHERE name = ${name} AND revoked_at IS NULL LIMIT 1
+      `;
+      if (existing.length > 0) {
+        throw new Error(
+          `'${name}' already names an active DBrain API key; pick a different client name ` +
+          'or revoke the legacy key on the Agents page first',
+        );
+      }
     }
-  }
-  const token = generateToken('dl_');
-  const hash = hashToken(token);
-  const id = randomUUID();
-  await sql`INSERT INTO access_tokens (id, name, token_hash) VALUES (${id}, ${name}, ${hash})`;
-  try {
-    await cli(['register', name], token);
-  } catch (error) {
-    await sql`UPDATE access_tokens SET revoked_at = now() WHERE id = ${id}`;
-    throw error;
-  }
-  await sql`
-    UPDATE access_tokens SET revoked_at = now()
-    WHERE name = ${name} AND id <> ${id} AND revoked_at IS NULL
-  `;
-  return token;
+    const token = generateToken('dl_');
+    const hash = hashToken(token);
+    const id = randomUUID();
+    await sql`INSERT INTO access_tokens (id, name, token_hash) VALUES (${id}, ${name}, ${hash})`;
+    try {
+      await cli(['register', name], token);
+    } catch (error) {
+      await sql`UPDATE access_tokens SET revoked_at = now() WHERE id = ${id}`;
+      throw error;
+    }
+    await sql`
+      UPDATE access_tokens SET revoked_at = now()
+      WHERE name = ${name} AND id <> ${id} AND revoked_at IS NULL
+    `;
+    return token;
+  });
 }
 
-export async function revokeUnifiedClient(
+export function revokeUnifiedClient(
   sql: SqlQuery,
   name: string,
   deps: IssueDeps = {},
 ): Promise<{ dbrain: boolean; caesar: boolean; errors: string[] }> {
-  const cli = deps.cli ?? caesarAdminCli;
-  const loadRegistry = deps.loadRegistry ?? readCaesarRegistry;
-  // Same namespace guard as issue: only clients in the Caesar registry are unified
-  // clients; legacy DBrain-only API keys are managed on the Agents page.
-  const registry = await loadRegistry();
-  if (!registry.clients?.[name]) {
-    return {
-      dbrain: false,
-      caesar: false,
-      errors: [`'${name}' is not a unified Caesar client; legacy API keys live on the Agents page`],
-    };
-  }
-  const errors: string[] = [];
-  let dbrain = false;
-  let caesar = false;
-  try {
-    await sql`UPDATE access_tokens SET revoked_at = now() WHERE name = ${name} AND revoked_at IS NULL`;
-    dbrain = true;
-  } catch (error) {
-    errors.push(`dbrain: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  try {
-    await cli(['revoke', name]);
-    caesar = true;
-  } catch (error) {
-    errors.push(`caesar: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return { dbrain, caesar, errors };
+  return withClientLock(name, async () => {
+    const cli = deps.cli ?? caesarAdminCli;
+    const loadRegistry = deps.loadRegistry ?? readCaesarRegistry;
+    // Same namespace guard as issue: only clients in the Caesar registry are unified
+    // clients; legacy DBrain-only API keys are managed on the Agents page.
+    const registry = await loadRegistry();
+    if (!registry.clients?.[name]) {
+      return {
+        dbrain: false,
+        caesar: false,
+        errors: [`'${name}' is not a unified Caesar client; legacy API keys live on the Agents page`],
+      };
+    }
+    const errors: string[] = [];
+    let dbrain = false;
+    let caesar = false;
+    try {
+      await sql`UPDATE access_tokens SET revoked_at = now() WHERE name = ${name} AND revoked_at IS NULL`;
+      dbrain = true;
+    } catch (error) {
+      errors.push(`dbrain: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await cli(['revoke', name]);
+      caesar = true;
+    } catch (error) {
+      errors.push(`caesar: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { dbrain, caesar, errors };
+  });
 }

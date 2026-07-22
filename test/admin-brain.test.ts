@@ -56,8 +56,8 @@ describe('admin brain read models', () => {
       executeRaw: async (sql: string, params: unknown[] = []) => {
         calls.push({ sql, params });
         if (calls.length === 1) return [
-          { id: 7, slug: 'a', title: 'A', type: 'knowledge', source_id: 'default', degree: 2 },
-          { id: 12, slug: 'b', title: 'B', type: 'knowledge', source_id: 'default', degree: 1 },
+          { id: 7, slug: 'a', title: 'A', type: 'knowledge', subject: 'biomechanics', source_id: 'default', degree: 2 },
+          { id: 12, slug: 'b', title: 'B', type: 'knowledge', subject: 'pitching', source_id: 'default', degree: 1 },
         ];
         return [];
       },
@@ -67,6 +67,7 @@ describe('admin brain read models', () => {
 
     expect(calls).toHaveLength(2);
     expect(calls[0]!.sql).not.toContain('DROP TABLE');
+    expect(calls[0]!.sql).toContain("frontmatter->>'subject'");
     expect(calls[1]!.sql).toContain('IN ($1, $2)');
     expect(calls[1]!.params).toEqual([7, 12]);
   });
@@ -91,6 +92,14 @@ describe('admin brain read models', () => {
     await writeFile(path, JSON.stringify({ schema_version: 999, services: [], schedules: [] }));
     const rejected = await readOperationsSnapshot(path);
     expect(rejected.operational_status).toBe('unknown');
+  });
+
+  test('graph canvas colors nodes by subject without rendering page labels', async () => {
+    const source = await readFile(new URL('../admin/src/pages/BrainGraph.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('subjectColor(node.subject)');
+    expect(source).toContain('groups.set(node.subject');
+    expect(source).not.toContain('<text');
+    expect(source).not.toContain('sourceColors');
   });
 
   test('keeps every brain operations route behind admin authentication', async () => {

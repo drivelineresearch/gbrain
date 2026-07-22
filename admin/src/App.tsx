@@ -5,13 +5,16 @@ import { AgentsPage } from './pages/Agents';
 import { RequestLogPage } from './pages/RequestLog';
 import { CalibrationPage } from './pages/Calibration';
 import { JobsWatchPage } from './pages/JobsWatch';
+import { ContentPage } from './pages/Content';
+import { BrainGraphPage } from './pages/BrainGraph';
+import { OperationsPage } from './pages/Operations';
 import { api } from './api';
 
-type Page = 'login' | 'dashboard' | 'agents' | 'log' | 'calibration' | 'jobs';
+type Page = 'login' | 'dashboard' | 'content' | 'graph' | 'operations' | 'agents' | 'log' | 'calibration' | 'jobs';
 
 function getPage(): Page {
   const hash = window.location.hash.replace('#', '') || 'dashboard';
-  if (['login', 'dashboard', 'agents', 'log', 'calibration', 'jobs'].includes(hash)) return hash as Page;
+  if (['login', 'dashboard', 'content', 'graph', 'operations', 'agents', 'log', 'calibration', 'jobs'].includes(hash)) return hash as Page;
   return 'dashboard';
 }
 
@@ -48,10 +51,17 @@ export function App() {
   return (
     <div className="app">
       <nav className="sidebar">
-        <div className="sidebar-logo">GBrain</div>
+        <div className="sidebar-logo"><span>dbrain</span><small>operations console</small></div>
         <div className="sidebar-nav">
           <a className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
-             onClick={() => navigate('dashboard')}>Dashboard</a>
+             onClick={() => navigate('dashboard')}>Overview</a>
+          <a className={`nav-item ${page === 'content' ? 'active' : ''}`}
+             onClick={() => navigate('content')}>Content</a>
+          <a className={`nav-item ${page === 'graph' ? 'active' : ''}`}
+             onClick={() => navigate('graph')}>Knowledge graph</a>
+          <a className={`nav-item ${page === 'operations' ? 'active' : ''}`}
+             onClick={() => navigate('operations')}>Operations</a>
+          <div className="nav-section">Access & telemetry</div>
           <a className={`nav-item ${page === 'agents' ? 'active' : ''}`}
              onClick={() => navigate('agents')}>Agents</a>
           <a className={`nav-item ${page === 'log' ? 'active' : ''}`}
@@ -59,7 +69,7 @@ export function App() {
           <a className={`nav-item ${page === 'calibration' ? 'active' : ''}`}
              onClick={() => navigate('calibration')}>Calibration</a>
           <a className={`nav-item ${page === 'jobs' ? 'active' : ''}`}
-             onClick={() => navigate('jobs')}>Jobs Watch</a>
+             onClick={() => navigate('jobs')}>Queue live view</a>
         </div>
         <div style={{ marginTop: 'auto', padding: '16px 12px', borderTop: '1px solid var(--border)' }}>
           <button
@@ -82,6 +92,9 @@ export function App() {
       </nav>
       <main className="main">
         {page === 'dashboard' && <DashboardPage />}
+        {page === 'content' && <ContentPage />}
+        {page === 'graph' && <BrainGraphPage />}
+        {page === 'operations' && <OperationsPage />}
         {page === 'agents' && <AgentsPage />}
         {page === 'log' && <RequestLogPage />}
         {page === 'calibration' && <CalibrationPage />}

@@ -52,4 +52,10 @@ export const api = {
     apiFetchText(`/admin/api/calibration/charts/${encodeURIComponent(type)}${holder ? `?holder=${encodeURIComponent(holder)}` : ''}`),
   // v0.41 D2 — live minion-jobs dashboard snapshot.
   jobsWatch: () => apiFetch('/admin/api/jobs/watch'),
+  brainHealth: () => apiFetch('/admin/api/brain/health'),
+  brainPages: (params: URLSearchParams) => apiFetch(`/admin/api/brain/pages?${params.toString()}`),
+  brainPage: (id: number) => apiFetch(`/admin/api/brain/pages/${id}`),
+  brainGraph: (params: URLSearchParams) => apiFetch(`/admin/api/brain/graph?${params.toString()}`),
+  jobHistory: (status = '') => apiFetch(`/admin/api/jobs/history?limit=120${status ? `&status=${encodeURIComponent(status)}` : ''}`),
+  operations: () => apiFetch('/admin/api/operations'),
 };

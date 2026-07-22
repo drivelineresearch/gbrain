@@ -38,6 +38,13 @@ import * as db from '../core/db.ts';
 import { sqlQueryForEngine, executeRawJsonb } from '../core/sql-query.ts';
 import { MinionQueue } from '../core/minions/queue.ts';
 import {
+  getAdminGraph,
+  getAdminPage,
+  listAdminJobHistory,
+  listAdminPages,
+  readOperationsSnapshot,
+} from '../core/admin-brain.ts';
+import {
   computeContentHash,
   validateIngestionEvent,
   type IngestionContentType,
@@ -1063,6 +1070,77 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
       const msg = e instanceof Error ? e.message : String(e);
       res.status(500).json({ error: msg });
     }
+  });
+
+  // Brain operations console. Every endpoint is read-only, admin-authenticated,
+  // bounded, and source-aware. The browser never receives database credentials
+  // or arbitrary host-journal access.
+  let doctorCache: { expiresAt: number; value: unknown } | null = null;
+  app.get('/admin/api/brain/health', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      if (!doctorCache || doctorCache.expiresAt <= Date.now()) {
+        const { doctorReportRemote } = await import('./doctor.ts');
+        const [doctor, stats, brain] = await Promise.all([
+          doctorReportRemote(engine),
+          engine.getStats(),
+          engine.getHealth(),
+        ]);
+        doctorCache = {
+          expiresAt: Date.now() + 30_000,
+          value: { generated_at: new Date().toISOString(), doctor, stats, brain },
+        };
+      }
+      res.json(doctorCache.value);
+    } catch {
+      res.status(503).json({ error: 'brain_health_unavailable' });
+    }
+  });
+
+  app.get('/admin/api/brain/pages', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      res.json(await listAdminPages(engine, req.query));
+    } catch {
+      res.status(503).json({ error: 'brain_pages_unavailable' });
+    }
+  });
+
+  app.get('/admin/api/brain/pages/:id', requireAdmin, async (req: Request, res: Response) => {
+    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const pageId = Number.parseInt(rawId ?? '', 10);
+    if (!Number.isSafeInteger(pageId) || pageId < 1) {
+      res.status(400).json({ error: 'invalid_page_id' });
+      return;
+    }
+    try {
+      const result = await getAdminPage(engine, pageId);
+      if (!result) {
+        res.status(404).json({ error: 'page_not_found' });
+        return;
+      }
+      res.json(result);
+    } catch {
+      res.status(503).json({ error: 'brain_page_unavailable' });
+    }
+  });
+
+  app.get('/admin/api/brain/graph', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      res.json(await getAdminGraph(engine, req.query));
+    } catch {
+      res.status(503).json({ error: 'brain_graph_unavailable' });
+    }
+  });
+
+  app.get('/admin/api/jobs/history', requireAdmin, async (req: Request, res: Response) => {
+    try {
+      res.json(await listAdminJobHistory(engine, req.query));
+    } catch {
+      res.status(503).json({ error: 'job_history_unavailable' });
+    }
+  });
+
+  app.get('/admin/api/operations', requireAdmin, async (_req: Request, res: Response) => {
+    res.json(await readOperationsSnapshot(process.env.GBRAIN_ADMIN_OPERATIONS_FILE));
   });
 
   // v0.36.1.0 (T15 / E6 / D23) — Calibration tab data endpoints.

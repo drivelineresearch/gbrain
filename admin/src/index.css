@@ -137,6 +137,9 @@ label { display: block; margin-bottom: 6px; font-weight: 600; }
 .run-log time { color: var(--text-muted); }
 .run-log span { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .error-cell { max-width: 260px; color: var(--error); font-family: var(--font-mono); font-size: 9px; }
+.job-history-panel { max-height: 720px; overflow: auto; }
+.job-history-panel .panel-heading, .job-history-panel thead { position: sticky; top: 0; z-index: 2; background: var(--bg-secondary); }
+.job-history-panel thead { top: 58px; z-index: 1; }
 
 .drawer-overlay { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.62); }
 .drawer { position: fixed; z-index: 81; inset: 0 0 0 auto; width: min(660px, 100%); padding: 27px 30px; overflow-y: auto; background: #121212; border-left: 2px solid var(--accent); }

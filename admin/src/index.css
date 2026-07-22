@@ -131,7 +131,7 @@ label { display: block; margin-bottom: 6px; font-weight: 600; }
 .status-label.bad { color: var(--error); }
 .ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .schedule-panel { margin-bottom: 16px; }
-.queue-strip { grid-template-columns: repeat(4, 1fr); border-bottom: 0; }
+.queue-strip { grid-template-columns: repeat(5, 1fr); border-bottom: 0; }
 .run-log { max-height: 185px; overflow-y: auto; }
 .run-log > div { display: grid; grid-template-columns: 135px 150px 1fr; gap: 8px; padding: 7px 10px; border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 9px; }
 .run-log time { color: var(--text-muted); }

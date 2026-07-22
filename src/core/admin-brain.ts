@@ -55,6 +55,7 @@ export interface OperationsSnapshot {
     latency_ms?: number | null;
     detail?: string;
   }>;
+  recent_dead_jobs_30m?: number;
   doctor?: Record<string, unknown>;
 }
 

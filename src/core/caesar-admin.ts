@@ -30,7 +30,10 @@ const CAESAR_REGISTRY =
 const CAESAR_CALL_LOG =
   process.env.CAESAR_MCP_CALL_LOG_PATH ?? `${CAESAR_HOME}/runtime/world-model/calls.jsonl`;
 const CAESAR_HEALTH_URL = process.env.CAESAR_MCP_HEALTH_URL ?? 'http://127.0.0.1:8802/health';
-const UV_BIN = process.env.UV_BIN ?? '/home/andrew/.local/bin/uv';
+// The venv console script directly — NOT `uv run`, which wants to write
+// ~/.cache/uv and fails under the service's ProtectHome=read-only sandbox.
+const CAESAR_ADMIN_BIN =
+  process.env.CAESAR_MCP_ADMIN_BIN ?? `${CAESAR_HOME}/.venv/bin/caesar-mcp-admin`;
 
 // Claim codes avoid 0/O/1/I so they survive being read aloud or handwritten.
 const CLAIM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -127,8 +130,8 @@ export class ClaimStore {
 export function caesarAdminCli(args: string[], stdinLine?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(
-      UV_BIN,
-      ['run', 'caesar-mcp-admin', '--registry', CAESAR_REGISTRY, ...args],
+      CAESAR_ADMIN_BIN,
+      ['--registry', CAESAR_REGISTRY, ...args],
       { cwd: CAESAR_HOME, stdio: ['pipe', 'ignore', 'pipe'], timeout: 30_000 },
     );
     let stderr = '';

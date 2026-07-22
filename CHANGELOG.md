@@ -14,7 +14,7 @@ All notable changes to GBrain will be documented in this file.
 
 ### Operator notes
 - Nginx needs a `location = /enroll/claim` block (tight `dbrain_token` rate-limit zone) proxying to the GBrain port; see the caesar-mcp repo's `deploy/nginx-caesar-mcp.conf` companion notes.
-- Environment overrides: `CAESAR_MCP_HOME`, `CAESAR_MCP_REGISTRY`, `CAESAR_MCP_CALL_LOG_PATH`, `CAESAR_MCP_HEALTH_URL`, `UV_BIN`.
+- Environment overrides: `CAESAR_MCP_HOME`, `CAESAR_MCP_REGISTRY`, `CAESAR_MCP_CALL_LOG_PATH`, `CAESAR_MCP_HEALTH_URL`, `CAESAR_MCP_ADMIN_BIN`.
 
 ## [0.42.59.0] - 2026-07-13
 

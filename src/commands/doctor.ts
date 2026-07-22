@@ -4451,7 +4451,29 @@ export async function buildChecks(
         if (snap && isLockHolderLive(snap, SUPERVISOR_LOCK_TTL_MIN)) detectedViaDbLock = true;
       } catch { /* pre-migration / transient: pidfile-only */ }
     }
-    const running = pidfileRunning || detectedViaDbLock;
+
+    // `gbrain autopilot` is also a first-class worker supervisor, but it owns
+    // `autopilot.lock` instead of the standalone supervisor PID file/DB lock.
+    // Treat a live, PID-verified autopilot manager as healthy supervision so
+    // systemd-owned deployments do not receive a false detached-supervisor
+    // warning. A stale lock still fails closed when its recorded PID no longer
+    // exists; this is the same liveness contract used by the status command.
+    let detectedViaAutopilot = false;
+    if (!pidfileRunning && !detectedViaDbLock) {
+      try {
+        const raw = readFileSync(gbrainPath('autopilot.lock'), 'utf8').trim();
+        const autopilotPid = Number.parseInt(raw, 10);
+        if (Number.isSafeInteger(autopilotPid) && autopilotPid > 0) {
+          try {
+            process.kill(autopilotPid, 0);
+            detectedViaAutopilot = true;
+          } catch (error) {
+            detectedViaAutopilot = (error as NodeJS.ErrnoException).code === 'EPERM';
+          }
+        }
+      } catch { /* no autopilot lock: standalone-supervisor checks still apply */ }
+    }
+    const running = pidfileRunning || detectedViaDbLock || detectedViaAutopilot;
 
     const events = readSupervisorEvents({ sinceMs: 24 * 60 * 60 * 1000 });
     const lastStart = events.filter(e => e.event === 'started').pop()?.ts ?? null;
@@ -4499,7 +4521,7 @@ export async function buildChecks(
         checks.push({
           name: 'supervisor',
           status: 'ok',
-          message: `running=true${detectedViaDbLock ? ' (detected via DB lock; pidfile not at the HOME-derived path)' : ` pid=${supervisorPid}`} last_start=${lastStart ?? 'unknown'} crashes_24h=${crashes24h} clean_exits_24h=${summary.clean_exits}`,
+          message: `running=true${detectedViaAutopilot ? ' (managed by live autopilot)' : detectedViaDbLock ? ' (detected via DB lock; pidfile not at the HOME-derived path)' : ` pid=${supervisorPid}`} last_start=${lastStart ?? 'unknown'} crashes_24h=${crashes24h} clean_exits_24h=${summary.clean_exits}`,
         });
       }
     }

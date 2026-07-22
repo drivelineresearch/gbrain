@@ -997,6 +997,13 @@ describe('supervisor crash classifier wiring (v0.35.x)', () => {
     expect(source).toContain('clean_exits_24h=');
   });
 
+  test('doctor accepts a live autopilot as the active worker supervisor', async () => {
+    const source = await Bun.file(new URL('../src/commands/doctor.ts', import.meta.url)).text();
+    expect(source).toContain("gbrainPath('autopilot.lock')");
+    expect(source).toContain('managed by live autopilot');
+    expect(source).toContain('pidfileRunning || detectedViaDbLock || detectedViaAutopilot');
+  });
+
   test('jobs.ts supervisor status uses summarizeCrashes — same wiring as doctor', async () => {
     const source = await Bun.file(new URL('../src/commands/jobs.ts', import.meta.url)).text();
     // Both surfaces MUST go through the shared helper. Without this, the two

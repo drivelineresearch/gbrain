@@ -166,10 +166,10 @@ label { display: block; margin-bottom: 6px; font-weight: 600; }
 .graph-node { cursor: pointer; }
 .graph-node circle { stroke: #0d0d0d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .graph-node circle.selected { stroke: #fff; stroke-width: 2; }
-.graph-node text { fill: #d7d2ca; font: 8px var(--font-sans); paint-order: stroke; stroke: #0d0d0d; stroke-width: 3px; }
 .graph-legend { position: absolute; left: 12px; bottom: 12px; display: flex; max-width: 70%; flex-wrap: wrap; gap: 8px 14px; padding: 8px 10px; background: #101010; border: 1px solid var(--border); }
 .graph-legend span { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 8px; }
 .graph-legend i { width: 7px; height: 7px; border-radius: 50%; }
+.graph-legend b { color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; }
 .graph-help { position: absolute; right: 12px; bottom: 12px; color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .graph-inspector { position: absolute; right: 12px; top: 12px; width: 310px; padding: 17px; background: #131313; border: 1px solid var(--accent); }
 .graph-inspector > button { float: right; color: var(--text-secondary); background: transparent; border: 0; cursor: pointer; }

@@ -194,6 +194,7 @@ export async function getAdminGraph(
     slug: string;
     title: string;
     type: string;
+    subject: string;
     source_id: string;
     degree: number;
   }>(
@@ -206,7 +207,9 @@ export async function getAdminGraph(
          ) d
         GROUP BY page_id
      )
-     SELECT p.id, p.slug, p.title, p.type, p.source_id,
+     SELECT p.id, p.slug, p.title, p.type,
+            COALESCE(NULLIF(btrim(p.frontmatter->>'subject'), ''), 'unassigned') AS subject,
+            p.source_id,
             COALESCE(d.degree, 0)::int AS degree
        FROM pages p
        LEFT JOIN degrees d ON d.page_id = p.id

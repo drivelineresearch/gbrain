@@ -1,16 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 
-interface Node { id: number; title: string; slug: string; type: string; source_id: string; degree: number }
+interface Node { id: number; title: string; slug: string; type: string; subject: string; source_id: string; degree: number }
 interface Edge { id: number; source: number; target: number; type: string }
 interface GraphData { nodes: Node[]; edges: Edge[]; truncated: boolean; limit: number }
 interface PositionedNode extends Node { x: number; y: number }
 
-const sourceColors = ['#FFA300', '#4E79A7', '#59A14F', '#E15759', '#B07AA1', '#76B7B2'];
+const subjectPalette = ['#FFA300', '#10B981', '#EF4444', '#CF7F00', '#FFFFFF', '#9CA3AF', '#D1D5DB', '#6B7280'];
+const primarySubjectColors: Record<string, string> = {
+  'hitting-programming': '#FFA300',
+  'pitching-programming': '#10B981',
+  'high-performance-programming': '#EF4444',
+  'programming-precedent': '#CF7F00',
+  unassigned: '#6B7280',
+};
 function hash(value: string) {
   let n = 2166136261;
   for (let i = 0; i < value.length; i++) n = Math.imul(n ^ value.charCodeAt(i), 16777619);
   return Math.abs(n);
+}
+function subjectColor(subject: string) {
+  return primarySubjectColors[subject] ?? subjectPalette[hash(subject) % subjectPalette.length];
 }
 
 export function BrainGraphPage() {
@@ -33,11 +43,14 @@ export function BrainGraphPage() {
     return () => clearTimeout(timer);
   }, [source, type, query]);
 
-  const sources = useMemo(() => Array.from(new Set(data.nodes.map(n => n.source_id))).sort(), [data.nodes]);
-  const colors = useMemo(() => new Map(sources.map((s, i) => [s, sourceColors[i % sourceColors.length]])), [sources]);
+  const subjects = useMemo(() => {
+    const counts = new Map<string, number>();
+    data.nodes.forEach(node => counts.set(node.subject, (counts.get(node.subject) ?? 0) + 1));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [data.nodes]);
   const nodes = useMemo<PositionedNode[]>(() => {
     const groups = new Map<string, Node[]>();
-    data.nodes.forEach(node => groups.set(node.source_id, [...(groups.get(node.source_id) ?? []), node]));
+    data.nodes.forEach(node => groups.set(node.subject, [...(groups.get(node.subject) ?? []), node]));
     const positioned: PositionedNode[] = [];
     Array.from(groups.entries()).forEach(([key, group], groupIndex) => {
       const angle = (groupIndex / Math.max(groups.size, 1)) * Math.PI * 2 - Math.PI / 2;
@@ -86,19 +99,18 @@ export function BrainGraphPage() {
             const radius = Math.max(3.5, Math.min(13, 3 + Math.sqrt(Number(node.degree)) * .65));
             return <g key={node.id} className="graph-node" transform={`translate(${node.x} ${node.y})`}
               onPointerDown={e => e.stopPropagation()} onClick={() => setSelected(node)}>
-              <circle r={radius + (selected?.id === node.id ? 4 : 0)} fill={colors.get(node.source_id)} className={selected?.id === node.id ? 'selected' : ''} />
-              {(Number(node.degree) > 18 || selected?.id === node.id) && <text x={radius + 5} y="4">{node.title.slice(0, 34)}</text>}
+              <circle r={radius + (selected?.id === node.id ? 4 : 0)} fill={subjectColor(node.subject)} className={selected?.id === node.id ? 'selected' : ''} />
             </g>;
           })}
         </g>
       </svg>
-      <div className="graph-legend">{sources.map(s => <span key={s}><i style={{ background: colors.get(s) }} />{s}</span>)}</div>
-      <div className="graph-help">Drag to pan · Scroll to zoom · Node size = link degree</div>
+      <div className="graph-legend">{subjects.map(([subject, count]) => <span key={subject}><i style={{ background: subjectColor(subject) }} />{subject} <b>{count}</b></span>)}</div>
+      <div className="graph-help">Drag to pan · Scroll to zoom · Color = subject · Size = link degree</div>
       {selected && <aside className="graph-inspector">
         <button onClick={() => setSelected(null)}>×</button>
-        <div className="eyebrow">{selected.source_id} / {selected.type}</div>
+        <div className="eyebrow">{selected.subject}</div>
         <h2>{selected.title}</h2><div className="slug">{selected.slug}</div>
-        <dl className="detail-grid"><div><dt>Link degree</dt><dd>{selected.degree}</dd></div></dl>
+        <dl className="detail-grid"><div><dt>Source</dt><dd>{selected.source_id}</dd></div><div><dt>Type</dt><dd>{selected.type}</dd></div><div><dt>Link degree</dt><dd>{selected.degree}</dd></div></dl>
         <a href={`#content`} className="btn btn-primary">Open content browser</a>
       </aside>}
     </div>

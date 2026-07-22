@@ -13,9 +13,9 @@ import A_1_assets_Gotham_Medium_DhU0b2rU_otf from '../admin/dist/assets/Gotham-M
 // @ts-ignore — type: 'file' is Bun ESM, not in lib.d.ts
 import A_2_assets_d_plus_orange_DWhrmeJd_png from '../admin/dist/assets/d-plus-orange-DWhrmeJd.png' with { type: 'file' };
 // @ts-ignore — type: 'file' is Bun ESM, not in lib.d.ts
-import A_3_assets_index_C4q5MNXw_js from '../admin/dist/assets/index-C4q5MNXw.js' with { type: 'file' };
+import A_3_assets_index_B1B_1xUU_js from '../admin/dist/assets/index-B1B_1xUU.js' with { type: 'file' };
 // @ts-ignore — type: 'file' is Bun ESM, not in lib.d.ts
-import A_4_assets_index_DFExAyEX_css from '../admin/dist/assets/index-DFExAyEX.css' with { type: 'file' };
+import A_4_assets_index_CDDMKYgk_css from '../admin/dist/assets/index-CDDMKYgk.css' with { type: 'file' };
 // @ts-ignore — type: 'file' is Bun ESM, not in lib.d.ts
 import A_5_index_html from '../admin/dist/index.html' with { type: 'file' };
 
@@ -28,8 +28,8 @@ export const ADMIN_ASSETS: Record<string, AdminAsset> = {
   "/admin/assets/Gotham-Book-C1TAP-J8.otf": { path: A_0_assets_Gotham_Book_C1TAP_J8_otf as unknown as string, mime: "application/octet-stream" },
   "/admin/assets/Gotham-Medium-DhU0b2rU.otf": { path: A_1_assets_Gotham_Medium_DhU0b2rU_otf as unknown as string, mime: "application/octet-stream" },
   "/admin/assets/d-plus-orange-DWhrmeJd.png": { path: A_2_assets_d_plus_orange_DWhrmeJd_png as unknown as string, mime: "image/png" },
-  "/admin/assets/index-C4q5MNXw.js": { path: A_3_assets_index_C4q5MNXw_js as unknown as string, mime: "application/javascript; charset=utf-8" },
-  "/admin/assets/index-DFExAyEX.css": { path: A_4_assets_index_DFExAyEX_css as unknown as string, mime: "text/css; charset=utf-8" },
+  "/admin/assets/index-B1B_1xUU.js": { path: A_3_assets_index_B1B_1xUU_js as unknown as string, mime: "application/javascript; charset=utf-8" },
+  "/admin/assets/index-CDDMKYgk.css": { path: A_4_assets_index_CDDMKYgk_css as unknown as string, mime: "text/css; charset=utf-8" },
   "/admin/index.html": { path: A_5_index_html as unknown as string, mime: "text/html; charset=utf-8" },
 };
 

@@ -48,7 +48,7 @@ export function OperationsPage() {
     </section>
     <div className="ops-grid">
       <section className="data-panel"><div className="panel-heading"><h2>Queue</h2><span>current state</span></div>
-        <div className="queue-strip"><div><strong>{watch?.queue_health.waiting ?? '—'}</strong><span>waiting</span></div><div><strong>{watch?.queue_health.active ?? '—'}</strong><span>active</span></div><div><strong>{watch?.queue_health.stalled ?? '—'}</strong><span>stalled</span></div><div><strong>{watch?.lease_pressure_1h ?? '—'}</strong><span>lease bounces</span></div></div>
+        <div className="queue-strip"><div><strong>{watch?.queue_health.waiting ?? '—'}</strong><span>waiting</span></div><div><strong>{watch?.queue_health.active ?? '—'}</strong><span>active</span></div><div><strong>{watch?.queue_health.stalled ?? '—'}</strong><span>stalled</span></div><div><strong>{watch?.lease_pressure_1h ?? '—'}</strong><span>lease bounces</span></div><div><strong>{ops?.recent_dead_jobs_30m ?? '—'}</strong><span>dead / 30m</span></div></div>
       </section>
       <section className="data-panel"><div className="panel-heading"><h2>Host run log</h2><span>recent warnings and completions</span></div>
         <div className="run-log">{ops?.recent_runs.slice(0, 12).map((r: any, i: number) => <div key={`${r.unit}-${r.at}-${i}`}><time>{new Date(r.at).toLocaleString()}</time><strong>{r.unit}</strong><span>{r.message}</span></div>)}{ops?.recent_runs.length === 0 && <div className="panel-state">No host events in the snapshot window.</div>}</div>

@@ -46,6 +46,16 @@ import {
   readOperationsSnapshot,
 } from '../core/admin-brain.ts';
 import {
+  ClaimStore,
+  CLIENT_NAME as CAESAR_CLIENT_NAME,
+  fetchCaesarHealth,
+  issueUnifiedClient,
+  mergeUnifiedClients,
+  readCaesarCallLog,
+  readCaesarRegistry,
+  revokeUnifiedClient,
+} from '../core/caesar-admin.ts';
+import {
   computeContentHash,
   validateIngestionEvent,
   type IngestionContentType,
@@ -1371,6 +1381,98 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     } catch (e) {
       res.status(500).json({ error: e instanceof Error ? e.message : 'Revoke failed' });
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Unified Caesar MCP administration — one Driveline token across DBrain + Caesar.
+  // Load-bearing logic lives in core/caesar-admin.ts; handlers stay thin.
+  // ---------------------------------------------------------------------------
+  const caesarClaims = new ClaimStore();
+  const enrollBase = (publicUrl || `http://localhost:${port}`).replace(/\/$/, '');
+
+  app.get('/admin/api/caesar/health', requireAdmin, async (_req: Request, res: Response) => {
+    res.json(await fetchCaesarHealth());
+  });
+
+  app.get('/admin/api/caesar/calls', requireAdmin, async (req: Request, res: Response) => {
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    res.json({ calls: await readCaesarCallLog(limit) });
+  });
+
+  app.get('/admin/api/caesar/clients', requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const dbrainRows = await sql`
+        SELECT name, created_at, last_used_at,
+          CASE WHEN revoked_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status
+        FROM access_tokens ORDER BY created_at DESC
+      `;
+      res.json({
+        clients: mergeUnifiedClients(await readCaesarRegistry(), dbrainRows),
+        enrollment: caesarClaims.recent(),
+      });
+    } catch {
+      res.status(503).json({ error: 'service_unavailable' });
+    }
+  });
+
+  // Issue (or rotate — issuing for an existing name revokes its prior token in
+  // both stores). delivery='claim' (default) returns a one-time enrollment code;
+  // delivery='token' returns the plaintext once for service-account secret stores.
+  app.post('/admin/api/caesar/clients', requireAdmin, express.json(), async (req: Request, res: Response) => {
+    try {
+      const { name, delivery } = req.body ?? {};
+      if (!name || !CAESAR_CLIENT_NAME.test(String(name))) {
+        res.status(400).json({
+          error: 'client name must use 1-64 letters, numbers, dot, underscore, or dash',
+        });
+        return;
+      }
+      const token = await issueUnifiedClient(sql, String(name));
+      if (delivery === 'token') {
+        res.json({ name, token });
+        return;
+      }
+      const { code, expiresAt } = caesarClaims.create(String(name), token);
+      res.json({ name, claim_code: code, expires_at: new Date(expiresAt).toISOString() });
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : 'issue failed' });
+    }
+  });
+
+  app.post('/admin/api/caesar/clients/revoke', requireAdmin, express.json(), async (req: Request, res: Response) => {
+    const { name } = req.body ?? {};
+    if (!name) { res.status(400).json({ error: 'Name required' }); return; }
+    const result = await revokeUnifiedClient(sql, String(name));
+    // A revoked client must not have a live enrollment code handing out its dead token.
+    caesarClaims.invalidateClient(String(name));
+    res.status(result.errors.length ? 207 : 200).json(result);
+  });
+
+  // Public single-use enrollment exchange. The claim code is the only secret the
+  // installer holds; it is worthless after one redemption or 15 minutes, and the
+  // plaintext token exists nowhere outside process memory until redeemed.
+  const enrollLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'too_many_requests' },
+  });
+  app.post('/enroll/claim', enrollLimiter, express.json(), (req: Request, res: Response) => {
+    const code = String((req.body ?? {}).code ?? '');
+    const claimed = code ? caesarClaims.claim(code) : null;
+    if (!claimed) {
+      res.status(410).json({ error: 'claim code is invalid, expired, or already used' });
+      return;
+    }
+    res.json({
+      token: claimed.token,
+      client_id: claimed.clientName,
+      endpoints: {
+        dbrain: `${enrollBase}/mcp`,
+        caesar: `${enrollBase}/caesar-mcp/mcp`,
+      },
+    });
   });
 
   // Register client from admin dashboard

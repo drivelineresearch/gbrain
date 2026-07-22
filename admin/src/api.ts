@@ -58,4 +58,12 @@ export const api = {
   brainGraph: (params: URLSearchParams) => apiFetch(`/admin/api/brain/graph?${params.toString()}`),
   jobHistory: (status = '') => apiFetch(`/admin/api/jobs/history?limit=120${status ? `&status=${encodeURIComponent(status)}` : ''}`),
   operations: () => apiFetch('/admin/api/operations'),
+  // Unified Caesar MCP administration — one Driveline token across DBrain + Caesar.
+  caesarHealth: () => apiFetch('/admin/api/caesar/health'),
+  caesarCalls: (limit = 200) => apiFetch(`/admin/api/caesar/calls?limit=${limit}`),
+  caesarClients: () => apiFetch('/admin/api/caesar/clients'),
+  caesarIssue: (name: string, delivery: 'claim' | 'token' = 'claim') =>
+    apiFetch('/admin/api/caesar/clients', { method: 'POST', body: JSON.stringify({ name, delivery }) }),
+  caesarRevoke: (name: string) =>
+    apiFetch('/admin/api/caesar/clients/revoke', { method: 'POST', body: JSON.stringify({ name }) }),
 };

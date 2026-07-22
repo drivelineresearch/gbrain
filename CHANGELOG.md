@@ -2,6 +2,20 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.42.60.0] - 2026-07-22
+
+**Unified Caesar MCP administration: the admin dashboard now manages DBrain and Caesar MCP as one product — one Driveline token per client valid on both endpoints, one-time enrollment codes for installs, and a combined health/call view.**
+
+### Added
+- **Caesar MCP page in the admin dashboard** (`#caesar`): unified client table with per-side status (DBrain `access_tokens` + Caesar file registry merged by client name), one-click issue/rotate/revoke that updates both stores, live Caesar health, and the newest PII-safe Caesar call records (client, tool, latency, size, status only).
+- **Dual-issue client tokens** (`POST /admin/api/caesar/clients`): generates one `dl_` secret, stores its SHA-256 hash in `access_tokens` and registers the same hash in Caesar's registry via the audited `caesar-mcp-admin register` CLI (token passed on stdin, never argv). A Caesar-side failure rolls the fresh DBrain row back so the stores cannot drift.
+- **One-time enrollment codes** (`POST /enroll/claim`, rate-limited 10/min/IP): claim codes are single-use, 15-minute-TTL, and held only in process memory — the plaintext token is never written to disk or the database, and a restart voids all pending codes. Installers exchange the code over HTTPS for the token plus both MCP endpoint URLs.
+- Core logic in `src/core/caesar-admin.ts` with direct tests (`test/caesar-admin.test.ts`): claim single-use/TTL/re-issue semantics, registry merge, call-log tail parsing, and the shared client-name contract.
+
+### Operator notes
+- Nginx needs a `location = /enroll/claim` block (tight `dbrain_token` rate-limit zone) proxying to the GBrain port; see the caesar-mcp repo's `deploy/nginx-caesar-mcp.conf` companion notes.
+- Environment overrides: `CAESAR_MCP_HOME`, `CAESAR_MCP_REGISTRY`, `CAESAR_MCP_CALL_LOG_PATH`, `CAESAR_MCP_HEALTH_URL`, `UV_BIN`.
+
 ## [0.42.59.0] - 2026-07-13
 
 **Five community-reported fixes, each reproduced and verified before/after on both engines (PGLite + real Postgres): an upgrade wedge that locked pre-v121 brains out of migrations, two data-integrity holes in engine migration, silent deletion of facts containing pipe characters, confidently-wrong entity attribution on ambiguous names, and tightened source-scope enforcement in `think`.**

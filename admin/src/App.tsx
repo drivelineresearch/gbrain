@@ -8,13 +8,14 @@ import { JobsWatchPage } from './pages/JobsWatch';
 import { ContentPage } from './pages/Content';
 import { BrainGraphPage } from './pages/BrainGraph';
 import { OperationsPage } from './pages/Operations';
+import { CaesarPage } from './pages/Caesar';
 import { api } from './api';
 
-type Page = 'login' | 'dashboard' | 'content' | 'graph' | 'operations' | 'agents' | 'log' | 'calibration' | 'jobs';
+type Page = 'login' | 'dashboard' | 'content' | 'graph' | 'operations' | 'agents' | 'log' | 'calibration' | 'jobs' | 'caesar';
 
 function getPage(): Page {
   const hash = window.location.hash.replace('#', '') || 'dashboard';
-  if (['login', 'dashboard', 'content', 'graph', 'operations', 'agents', 'log', 'calibration', 'jobs'].includes(hash)) return hash as Page;
+  if (['login', 'dashboard', 'content', 'graph', 'operations', 'agents', 'log', 'calibration', 'jobs', 'caesar'].includes(hash)) return hash as Page;
   return 'dashboard';
 }
 
@@ -62,6 +63,8 @@ export function App() {
           <a className={`nav-item ${page === 'operations' ? 'active' : ''}`}
              onClick={() => navigate('operations')}>Operations</a>
           <div className="nav-section">Access & telemetry</div>
+          <a className={`nav-item ${page === 'caesar' ? 'active' : ''}`}
+             onClick={() => navigate('caesar')}>Caesar MCP</a>
           <a className={`nav-item ${page === 'agents' ? 'active' : ''}`}
              onClick={() => navigate('agents')}>Agents</a>
           <a className={`nav-item ${page === 'log' ? 'active' : ''}`}
@@ -95,6 +98,7 @@ export function App() {
         {page === 'content' && <ContentPage />}
         {page === 'graph' && <BrainGraphPage />}
         {page === 'operations' && <OperationsPage />}
+        {page === 'caesar' && <CaesarPage />}
         {page === 'agents' && <AgentsPage />}
         {page === 'log' && <RequestLogPage />}
         {page === 'calibration' && <CalibrationPage />}

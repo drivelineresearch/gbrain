@@ -9,10 +9,8 @@ import { api } from '../api';
 // - Magic-link URLs use single-use server-issued nonces, not the
 //   bootstrap token itself (see /admin/api/issue-magic-link). The
 //   bootstrap token never appears in a URL.
-// - Closing the tab ends the session client-side. Reopening the
-//   dashboard 401s and shows this page again. Operator asks the agent
-//   for a fresh magic link or pastes the bootstrap token from the
-//   server's terminal scrollback.
+// - A successful login remembers this browser for 30 days through a durable,
+//   server-revocable HttpOnly session. No credential is browser-readable.
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
@@ -67,7 +65,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
             "Give me the GBrain admin login link"
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-            Each link is single-use. Your agent generates a fresh one each time.
+            The link is single-use. After login, this browser stays recognized for 30 days.
           </div>
         </div>
 

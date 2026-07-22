@@ -31,7 +31,8 @@ import { hasScope, ALLOWED_SCOPES_LIST, normalizeScopesInput } from '../core/sco
 import { summarizeMcpParams, dispatchToolCall } from '../mcp/dispatch.ts';
 import { paramDefToSchema } from '../mcp/tool-defs.ts';
 import { getBrainHotMemoryMeta } from '../core/facts/meta-hook.ts';
-import { loadConfig } from '../core/config.ts';
+import { gbrainPath, loadConfig } from '../core/config.ts';
+import { ADMIN_SESSION_TTL_MS, AdminSessionStore } from '../core/admin-sessions.ts';
 import { buildError, serializeError } from '../core/errors.ts';
 import { VERSION } from '../version.ts';
 import * as db from '../core/db.ts';
@@ -538,7 +539,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   let bootstrapFromEnv: boolean = resolved.fromEnv;
   const bootstrapHash = createHash('sha256').update(bootstrapToken).digest('hex');
   const suppressBootstrapPrint = options.suppressBootstrapToken === true;
-  const adminSessions = new Map<string, number>(); // sessionId → expiresAt
+  const adminSessions = new AdminSessionStore(gbrainPath('admin-sessions.json'), bootstrapHash);
 
   // SSE clients for live activity feed
   const sseClients = new Set<express.Response>();
@@ -807,10 +808,10 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     }
 
     const sessionId = randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-    adminSessions.set(sessionId, expiresAt);
+    const expiresAt = Date.now() + ADMIN_SESSION_TTL_MS;
+    adminSessions.add(sessionId, expiresAt);
 
-    res.cookie('gbrain_admin', sessionId, adminCookie(req, 24 * 60 * 60 * 1000));
+    res.cookie('gbrain_admin', sessionId, adminCookie(req, ADMIN_SESSION_TTL_MS));
     res.json({ status: 'authenticated' });
   });
 
@@ -918,24 +919,18 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
     consumedNonces.add(nonce);
 
     const sessionId = randomBytes(32).toString('hex');
-    const sessionExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days for magic link
-    adminSessions.set(sessionId, sessionExpiresAt);
+    const sessionExpiresAt = Date.now() + ADMIN_SESSION_TTL_MS;
+    adminSessions.add(sessionId, sessionExpiresAt);
 
-    res.cookie('gbrain_admin', sessionId, adminCookie(req, 7 * 24 * 60 * 60 * 1000));
+    res.cookie('gbrain_admin', sessionId, adminCookie(req, ADMIN_SESSION_TTL_MS));
     res.redirect('/admin/');
   });
 
   // Admin auth middleware
   function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
     const sessionId = (req.cookies as Record<string, string>)?.gbrain_admin;
-    if (!sessionId || !adminSessions.has(sessionId)) {
+    if (!sessionId || !adminSessions.validate(sessionId)) {
       res.status(401).json({ error: 'Admin authentication required' });
-      return;
-    }
-    const expiresAt = adminSessions.get(sessionId)!;
-    if (Date.now() > expiresAt) {
-      adminSessions.delete(sessionId);
-      res.status(401).json({ error: 'Session expired' });
       return;
     }
     next();
@@ -950,8 +945,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   // The bootstrap token itself is unaffected (still valid for new
   // magic-link mints) — this only revokes existing cookie sessions.
   app.post('/admin/api/sign-out-everywhere', requireAdmin, (_req: Request, res: Response) => {
-    const count = adminSessions.size;
-    adminSessions.clear();
+    const count = adminSessions.clear();
     res.json({ revoked_sessions: count });
   });
 

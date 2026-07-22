@@ -250,7 +250,7 @@ export async function listAdminJobHistory(engine: BrainEngine, input: { status?:
     `SELECT id, name, queue, status, attempts_made, max_attempts,
             created_at, started_at, finished_at, updated_at,
             CASE WHEN started_at IS NULL THEN NULL
-                 ELSE round(extract(epoch FROM (COALESCE(finished_at, now()) - started_at)) * 1000)::bigint
+                 ELSE round(extract(epoch FROM (COALESCE(finished_at, now()) - started_at)) * 1000)::int
             END AS duration_ms,
             left(COALESCE(error_text, ''), 1000) AS error_text
        FROM minion_jobs

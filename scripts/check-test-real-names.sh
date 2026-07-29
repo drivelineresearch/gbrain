@@ -60,6 +60,7 @@ ALLOWLIST=(
   "test/serve-stdio-lifecycle.test.ts:Hermes"          # comment naming a downstream-agent scenario — pre-existing, low signal
   "test/extract.test.ts:Hermes"                        # markdown-link extraction test fixture — pre-existing, ambiguous (Greek god vs fork)
   "test/readme-hero-anchors.test.ts:Hermes"            # v0.36.0.0 D9 anchor test — asserts README mentions Hermes as a credit
+  "test/caesar-admin.test.ts:Hermes"                   # production OAuth client-id contract, not a person or private fork
   "test/readme-hero-anchors.test.ts:OpenClaw"          # v0.36.0.0 D9 anchor test — asserts README mentions OpenClaw as a credit
   # v0.36.0.0: skillpack-harvest privacy linter tests structurally
   # require the literal "Wintermute" to verify the linter catches it.

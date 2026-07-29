@@ -1,6 +1,5 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Server } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import type { BrainEngine } from '../core/engine.ts';
 import { operations } from '../core/operations.ts';
 import { VERSION } from '../version.ts';
@@ -15,7 +14,7 @@ import {
 } from '../core/context/resolve-ipc.ts';
 import { resolveEntitiesToPointers, logDeliveredReflexPointers } from '../core/context/retrieval-reflex.ts';
 
-export async function startMcpServer(engine: BrainEngine) {
+export function createGbrainMcpServer(engine: BrainEngine): Server {
   const server = new Server(
     { name: 'gbrain', version: VERSION },
     { capabilities: { tools: {} } },
@@ -24,7 +23,7 @@ export async function startMcpServer(engine: BrainEngine) {
   // Generate tool definitions from operations. Extracted to buildToolDefs so
   // the subagent tool registry (v0.15+) can call the same mapper against a
   // filtered OPERATIONS subset instead of duplicating this shape.
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler('tools/list', async (): Promise<any> => ({
     tools: buildToolDefs(operations),
   }));
 
@@ -33,14 +32,14 @@ export async function startMcpServer(engine: BrainEngine) {
   // The MCP SDK's response type widened in 1.29 to allow a managed-task wrapper;
   // gbrain ops are synchronous, so we return the legacy `{ content, isError? }`
   // shape and cast through `any` (the SDK accepts it via the ServerResult union).
-  server.setRequestHandler(CallToolRequestSchema, async (request: any): Promise<any> => {
+  server.setRequestHandler('tools/call', async (request: any): Promise<any> => {
     const { name, arguments: params } = request.params;
     // v0.28: stdio MCP has no per-token auth (local pipe). Default the
     // takes-holder allow-list to ['world'] so agent-facing callers don't
     // see private hunches via takes_list / takes_search / query. Operators
     // who want stdio to see everything should call ops directly via
     // `gbrain call <op>` (sets remote=false in src/cli.ts).
-    return dispatchToolCall(engine, name, params, {
+    const result = await dispatchToolCall(engine, name, params, {
       remote: true,
       takesHoldersAllowList: ['world'],
       // v0.31: source defaults to 'default' for stdio (no per-token scope).
@@ -52,10 +51,17 @@ export async function startMcpServer(engine: BrainEngine) {
       // every tool-call response. Best-effort; absorbs errors.
       metaHook: getBrainHotMemoryMeta,
     });
+    return server.projectCallToolResult(result as any, undefined);
   });
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  return server;
+}
+
+export async function startMcpServer(engine: BrainEngine) {
+  const stdio = serveStdio(() => createGbrainMcpServer(engine), {
+    legacy: 'serve',
+    onerror: (error) => process.stderr.write(`[gbrain-serve] MCP error: ${error.message}\n`),
+  });
 
   // Retrieval Reflex (#1981, D9=C): on a PGLite brain, serve owns the single
   // connection, so the context engine resolves salient entities THROUGH us over
@@ -102,7 +108,9 @@ export async function startMcpServer(engine: BrainEngine) {
     process.stderr.write(`[gbrain-serve] shutdown: ${reason}\n`);
     try { resolveServer?.close(); } catch { /* noop */ }
     if (resolveSocket) cleanupStaleSocket(resolveSocket);
-    Promise.resolve(engine.disconnect?.())
+    Promise.resolve(stdio.close())
+      .catch(() => {})
+      .then(() => engine.disconnect?.())
       .catch(() => {})
       .finally(() => process.exit(code));
   };
@@ -115,8 +123,6 @@ export async function startMcpServer(engine: BrainEngine) {
     process.stdin.on('end', () => shutdown('stdin end'));
     process.stdin.on('close', () => shutdown('stdin close'));
   }
-  // @ts-ignore — SDK exposes onclose on transport
-  transport.onclose = () => shutdown('transport close');
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGHUP', () => shutdown('SIGHUP'));

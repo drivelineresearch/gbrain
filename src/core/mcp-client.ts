@@ -1,7 +1,7 @@
 /**
  * Outbound HTTP MCP client for thin-client mode (multi-topology v1, Tier B).
  *
- * Wraps the official @modelcontextprotocol/sdk Client + StreamableHTTPClientTransport
+ * Wraps the official @modelcontextprotocol/client Client + StreamableHTTPClientTransport
  * with OAuth `client_credentials` minting + token caching + 401 retry. Used by:
  *   - `gbrain remote ping`   — submits autopilot-cycle, polls get_job
  *   - `gbrain remote doctor` — calls run_doctor MCP op
@@ -18,8 +18,7 @@
  * canonical "client credentials revoked or scope insufficient" signal.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { GBrainConfig } from './config.ts';
 import { discoverOAuth, mintClientCredentialsToken } from './remote-mcp-probe.ts';
 
@@ -217,12 +216,13 @@ async function buildClient(mcpUrl: string, accessToken: string, signal?: AbortSi
       headers: {
         'Authorization': `Bearer ${accessToken}`,
       },
+      redirect: 'error',
       ...(signal ? { signal } : {}),
     },
   });
   const client = new Client(
     { name: 'gbrain-remote-cli', version: '1' },
-    { capabilities: {} },
+    { versionNegotiation: { mode: 'auto' } },
   );
   await client.connect(transport);
   return client;

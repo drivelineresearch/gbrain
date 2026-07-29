@@ -20,8 +20,7 @@
  * Never throws: every failure path maps to `{ ok: false, reason, message }`.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 export type ConnectProbeReason = 'auth' | 'unreachable' | 'timeout' | 'tool_error' | 'unknown';
 
@@ -80,12 +79,13 @@ const DEFAULT_DEPS: ProbeDeps = {
     const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
       requestInit: {
         headers: { Authorization: `Bearer ${token}` },
+        redirect: 'error',
         signal,
       },
     });
     const client = new Client(
       { name: 'gbrain-connect-probe', version: '1' },
-      { capabilities: {} },
+      { versionNegotiation: { mode: 'auto' } },
     );
     // close() lives in a finally that wraps connect() too — if connect()
     // throws mid-handshake the transport/socket must still be torn down.

@@ -17,11 +17,16 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { randomBytes, createHash } from 'crypto';
 import { safeHexEqual } from '../core/timing-safe.ts';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  OAuthError,
+  OAuthErrorCode,
+  Server,
+  createMcpHandler,
+  type OAuthTokenVerifier,
+} from '@modelcontextprotocol/server';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { requireBearerAuth } from '@modelcontextprotocol/express';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
-import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import type { BrainEngine } from '../core/engine.ts';
 import { operations, OperationError } from '../core/operations.ts';
 import type { OperationContext, AuthInfo } from '../core/operations.ts';
@@ -1672,6 +1677,25 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   // MCP tool calls (bearer auth + scope enforcement)
   // ---------------------------------------------------------------------------
   const mcpOperations = operations.filter(op => !op.localOnly);
+  const mcpTokenVerifier: OAuthTokenVerifier = {
+    async verifyAccessToken(token: string) {
+      try {
+        return await oauthProvider.verifyAccessToken(token) as any;
+      } catch (error) {
+        if (error instanceof Error && error.name === 'InvalidTokenError') {
+          throw new OAuthError(OAuthErrorCode.InvalidToken, 'Invalid token');
+        }
+        console.error('OAuth token verification failed:', error instanceof Error ? error.message : error);
+        throw new OAuthError(OAuthErrorCode.ServerError, 'Token verification failed');
+      }
+    },
+  };
+  const mcpHandler = createMcpHandler(({ authInfo: sdkAuthInfo }) => {
+    if (!sdkAuthInfo) {
+      throw new Error('authenticated MCP request is missing auth context');
+    }
+    const startTime = Date.now();
+    const authInfo = sdkAuthInfo as unknown as AuthInfo;
 
   // v0.36.x #1076: MCP Streamable HTTP spec — GET /mcp opens an optional SSE
   // backchannel for server-initiated messages. gbrain's transport is stateless
@@ -1679,15 +1703,6 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   // (not 404) so probing clients (claude.ai, etc.) recognize this as an MCP
   // endpoint, not a missing route. Without this, clients display "endpoint not
   // found" instead of "endpoint exists but no SSE channel."
-  app.get('/mcp', (_req: Request, res: Response) => {
-    res.set('Allow', 'POST, DELETE');
-    res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null });
-  });
-
-  app.post('/mcp', requireBearerAuth({ verifier: oauthProvider }), async (req: Request, res: Response) => {
-    const startTime = Date.now();
-    const authInfo = (req as any).auth as AuthInfo;
-
     // Human-readable agent name is now threaded through AuthInfo by
     // verifyAccessToken (which JOINs oauth_clients in its existing token
     // SELECT). No per-request DB roundtrip needed. Falls back to clientId
@@ -1700,7 +1715,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
       { capabilities: { tools: {} } },
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler('tools/list', async (): Promise<any> => {
       // v0.28.10: log every JSON-RPC method, not just successful tools/call.
       // Pre-fix, /admin/api/requests showed nothing for clients that only
       // ever called tools/list, and the v0.26.3 persistence regression test
@@ -1738,7 +1753,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
       };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler('tools/call', async (request): Promise<any> => {
       const { name, arguments: params } = request.params;
       const op = mcpOperations.find(o => o.name === name);
       if (!op) {
@@ -1949,26 +1964,26 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
       return toolResult;
     });
 
-    // F14: wrap transport setup + handleRequest in try/catch. Without this,
-    // an SDK-level throw (e.g., schema parse failure on a malformed request)
-    // propagates to express's default error handler, which renders an HTML
-    // error page — clients expecting JSON-RPC envelopes break. On
-    // !res.headersSent we emit a minimal JSON 500 so the client at least
-    // gets parseable JSON back.
-    try {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined as any });
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-    } catch (e) {
-      console.error('MCP request handler error:', e instanceof Error ? e.message : e);
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: 'internal_error',
-          message: e instanceof Error ? e.message : 'Unknown error',
-        });
-      }
-    }
+    return server;
+  }, {
+    legacy: 'stateless',
+    responseMode: 'json',
+    onerror: (error) => console.error('MCP request handler error:', error.message),
   });
+  const handleMcpRequest = toNodeHandler(mcpHandler, {
+    onerror: (error) => console.error('MCP Node adapter error:', error.message),
+  });
+
+  app.get('/mcp', (_req: Request, res: Response) => {
+    res.set('Allow', 'POST');
+    res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null });
+  });
+
+  app.post(
+    '/mcp',
+    requireBearerAuth({ verifier: mcpTokenVerifier }),
+    (req: Request, res: Response) => void handleMcpRequest(req, res, req.body),
+  );
 
   // ---------------------------------------------------------------------------
   // v0.38 ingestion substrate — POST /ingest (webhook source)
@@ -2027,7 +2042,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   app.post(
     '/ingest',
     ingestRateLimiter,
-    requireBearerAuth({ verifier: oauthProvider, requiredScopes: ['write'] }),
+    requireBearerAuth({ verifier: mcpTokenVerifier, requiredScopes: ['write'] }),
     express.raw({ type: '*/*', limit: ingestMaxBytes }),
     async (req: Request, res: Response) => {
       const startTime = Date.now();

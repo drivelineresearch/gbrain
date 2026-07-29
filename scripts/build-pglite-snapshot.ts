@@ -7,7 +7,7 @@
 // 1-3 seconds of cold init and load the post-schema state directly.
 //
 // Output: test/fixtures/pglite-snapshot.tar (binary, gitignored)
-//         test/fixtures/pglite-snapshot.version (hex SHA256 of MIGRATIONS SQL)
+//         test/fixtures/pglite-snapshot.version (schema hash + vector dimensions)
 //
 // The version file lets the engine detect snapshot staleness — if the tar's
 // recorded version doesn't match the current MIGRATIONS hash, the engine
@@ -52,9 +52,16 @@ async function main() {
   console.log(`[build-pglite-snapshot] dumping data dir...`);
   const dump = await engine.db.dumpDataDir("none");
   const buffer = Buffer.from(await dump.arrayBuffer());
+  const embeddingDimensions = Number(await engine.getConfig("embedding_dimensions"));
+  if (!Number.isInteger(embeddingDimensions) || embeddingDimensions <= 0) {
+    throw new Error(`invalid snapshot embedding dimensions: ${embeddingDimensions}`);
+  }
 
   writeFileSync(fixturePath, buffer);
-  writeFileSync(versionPath, schemaHash + "\n");
+  writeFileSync(
+    versionPath,
+    `${schemaHash}\nembedding_dimensions=${embeddingDimensions}\n`,
+  );
   await engine.disconnect();
 
   console.log(`[build-pglite-snapshot] wrote ${fixturePath} (${buffer.length} bytes)`);

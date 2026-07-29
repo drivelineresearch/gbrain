@@ -68,10 +68,29 @@ type PGLiteDB = PGlite;
 
 // Tier 3 snapshot fast-restore. Reads a tar dump produced by
 // `bun run scripts/build-pglite-snapshot.ts`. Snapshot is matched against
-// the current MIGRATIONS hash via a sidecar `.version` file; on mismatch we
-// silently fall through to a normal initSchema (snapshot is just an
-// optimization, never authoritative).
+// the current MIGRATIONS hash and active embedding dimensions via a sidecar
+// `.version` file; on mismatch we silently fall through to a normal
+// initSchema (snapshot is just an optimization, never authoritative).
 let _snapshotWarnLogged = false;
+
+export function parseSnapshotVersion(
+  value: string,
+): { schemaHash: string; embeddingDimensions: number | null } {
+  const lines = value.trim().split(/\r?\n/);
+  const parsedDimensions = Number(
+    lines.find((line) => line.startsWith('embedding_dimensions='))
+      ?.slice('embedding_dimensions='.length),
+  );
+  return {
+    schemaHash: lines[0] ?? '',
+    embeddingDimensions: (
+      Number.isInteger(parsedDimensions) && parsedDimensions > 0
+        ? parsedDimensions
+        : null
+    ),
+  };
+}
+
 function tryLoadSnapshot(snapshotPath: string): Blob | null {
   try {
     // Lazy require so production builds without these imports don't crash.
@@ -99,11 +118,28 @@ function tryLoadSnapshot(snapshotPath: string): Blob | null {
       return null;
     }
     const expectedHash = computeSnapshotSchemaHash(MIGRATIONS, PGLITE_SCHEMA_SQL, crypto);
-    const actualHash = fs.readFileSync(versionPath, 'utf8').trim();
-    if (expectedHash !== actualHash) {
+    const snapshotVersion = parseSnapshotVersion(fs.readFileSync(versionPath, 'utf8'));
+    if (expectedHash !== snapshotVersion.schemaHash) {
       if (!_snapshotWarnLogged) {
         // eslint-disable-next-line no-console
         console.warn(`[pglite] snapshot stale (schema hash mismatch) — using normal init. Rebuild with: bun run build:pglite-snapshot`);
+        _snapshotWarnLogged = true;
+      }
+      return null;
+    }
+    let expectedDimensions = DEFAULT_EMBEDDING_DIMENSIONS;
+    try {
+      const gateway = require('./ai/gateway.ts') as typeof import('./ai/gateway.ts');
+      expectedDimensions = gateway.getEmbeddingDimensions();
+    } catch { /* gateway not configured — use the canonical default */ }
+    if (snapshotVersion.embeddingDimensions !== expectedDimensions) {
+      if (!_snapshotWarnLogged) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[pglite] snapshot embedding dimensions do not match `
+          + `(snapshot=${snapshotVersion.embeddingDimensions ?? 'missing'}, `
+          + `configured=${expectedDimensions}) — using normal init.`,
+        );
         _snapshotWarnLogged = true;
       }
       return null;

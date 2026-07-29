@@ -17,6 +17,9 @@ import { spawn, spawnSync, execFileSync, type ChildProcess } from 'child_process
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport as LegacyHTTPTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { probeBrainIdentity } from '../../src/core/connect-probe.ts';
 import { discoverOAuth, mintClientCredentialsToken } from '../../src/core/remote-mcp-probe.ts';
 
@@ -93,6 +96,40 @@ describe('connect bearer probe E2E (PGLite + real serve --http)', () => {
       // get_brain_identity returns the version/engine counter packet.
       expect(r.identity).toMatch(/version/);
       expect(r.identity).toMatch(/pglite/);
+    }
+  }, 30_000);
+
+  test('SDK v2 negotiates the 2026-07-28 protocol and lists tools', async () => {
+    const client = new Client(
+      { name: 'gbrain-modern-e2e', version: '1' },
+      { versionNegotiation: { mode: 'auto' } },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    try {
+      await client.connect(transport);
+      expect(client.getProtocolEra()).toBe('modern');
+      expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+    } finally {
+      await client.close().catch(() => {});
+    }
+  }, 30_000);
+
+  test('SDK v1 client remains compatible through the stateless fallback', async () => {
+    const client = new LegacyClient(
+      { name: 'gbrain-legacy-e2e', version: '1' },
+      { capabilities: {} },
+    );
+    const transport = new LegacyHTTPTransport(new URL(MCP_URL), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    try {
+      await client.connect(transport);
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+    } finally {
+      await client.close().catch(() => {});
     }
   }, 30_000);
 
